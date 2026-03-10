@@ -1,0 +1,6 @@
+{
+  "competition_id": 000,
+  "competition_slug": "competition-slug-here",
+  "s3_bucket": "",
+  "submission_format": "submission_format.csv"
+}

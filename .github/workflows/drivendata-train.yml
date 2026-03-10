@@ -1,0 +1,124 @@
+name: DrivenData Train & Validate
+
+on:
+  workflow_dispatch:
+    inputs:
+      competition_dir:
+        description: "Competition directory name"
+        required: true
+        type: string
+      memo:
+        description: "Run memo (experiment description)"
+        required: true
+        type: string
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install awscli pandas numpy scikit-learn lightgbm wandb
+          pip install "drivendata-submission-validator @ git+https://github.com/drivendataorg/drivendata-submission-validator.git" || true
+          if [ -f "${{ inputs.competition_dir }}/requirements.txt" ]; then
+            pip install -r "${{ inputs.competition_dir }}/requirements.txt"
+          fi
+
+      - name: Download data (S3)
+        run: |
+          python - <<'EOF'
+          import json, subprocess, os, sys
+
+          config = json.load(open("${{ inputs.competition_dir }}/drivendata-config.json"))
+          s3_bucket = config.get("s3_bucket")
+          data_dir = "${{ inputs.competition_dir }}/data"
+
+          if not s3_bucket:
+              print("No s3_bucket configured. Skipping data download.")
+              print("Assuming data is already committed or not needed.")
+              sys.exit(0)
+
+          os.makedirs(data_dir, exist_ok=True)
+          result = subprocess.run(
+              ["aws", "s3", "sync", s3_bucket, data_dir, "--no-sign-request"],
+              capture_output=True, text=True
+          )
+          if result.returncode != 0:
+              print(f"S3 sync failed: {result.stderr}")
+              print("Data may need to be downloaded manually from DrivenData.")
+              sys.exit(1)
+          print(result.stdout)
+          EOF
+
+      - name: Train and predict
+        env:
+          WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+        run: python "${{ inputs.competition_dir }}/train.py"
+
+      - name: Validate submission
+        run: |
+          python - <<'EOF'
+          import json, os, sys
+
+          config = json.load(open("${{ inputs.competition_dir }}/drivendata-config.json"))
+          submission_format = config.get("submission_format")
+          submission_file = "${{ inputs.competition_dir }}/submission.csv"
+
+          if not os.path.exists(submission_file):
+              print("ERROR: submission.csv not found. Check train.py output.")
+              sys.exit(1)
+
+          if submission_format:
+              format_file = f"${{ inputs.competition_dir }}/{submission_format}"
+              if os.path.exists(format_file):
+                  try:
+                      from drivendata_validator import DrivenDataValidator
+                      v = DrivenDataValidator()
+                      valid = v.is_valid(format_file, submission_file, print_errors=True)
+                      if not valid:
+                          print("Submission format validation FAILED.")
+                          sys.exit(1)
+                      print("Submission format validation PASSED.")
+                  except ImportError:
+                      print("drivendata-submission-validator not available. Skipping format check.")
+              else:
+                  print(f"submission_format file not found: {format_file}. Skipping validation.")
+          else:
+              print("No submission_format configured. Skipping format validation.")
+
+          import csv
+          with open(submission_file) as f:
+              rows = list(csv.reader(f))
+          print(f"Submission rows: {len(rows) - 1} (excluding header)")
+          print(f"Submission preview: {rows[:3]}")
+          EOF
+
+      - name: Upload submission as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: submission-${{ inputs.competition_dir }}-run${{ github.run_number }}
+          path: ${{ inputs.competition_dir }}/submission.csv
+          retention-days: 90
+
+      - name: Notify Discord (success)
+        if: success()
+        run: |
+          CONFIG=$(cat "${{ inputs.competition_dir }}/drivendata-config.json")
+          COMP_ID=$(echo "$CONFIG" | python3 -c "import json,sys; print(json.load(sys.stdin).get('competition_id',''))")
+          SUBMIT_URL="https://www.drivendata.org/competitions/${COMP_ID}/submissions/"
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"✅ **DrivenData学習完了**\nDir: \`${{ inputs.competition_dir }}\`\nMemo: ${{ inputs.memo }}\n\n📥 Artifactをダウンロードして手動提出:\n${SUBMIT_URL}\n\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
+
+      - name: Notify Discord (failure)
+        if: failure()
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"❌ **DrivenData失敗**\nDir: \`${{ inputs.competition_dir }}\`\nMemo: ${{ inputs.memo }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
