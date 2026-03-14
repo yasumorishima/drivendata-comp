@@ -34,38 +34,84 @@ def join_competition(page, comp_id: int, slug: str):
     url = f"{BASE_URL}/competitions/{comp_id}/{slug}/"
     page.goto(url)
     page.wait_for_load_state("networkidle")
+    time.sleep(2)
 
-    # Only click visible join buttons
-    join_btn = page.query_selector(
-        'button:visible:has-text("Join"), a:visible:has-text("Join")'
-    )
-    if join_btn and join_btn.is_visible():
-        try:
-            join_btn.click(timeout=10_000)
-            page.wait_for_load_state("networkidle")
-            # Handle any confirmation
-            confirm = page.query_selector(
-                'button:visible:has-text("Confirm"), button:visible:has-text("Accept"), '
-                'button:visible:has-text("Agree"), input:visible[type="submit"]'
-            )
-            if confirm and confirm.is_visible():
-                confirm.click(timeout=10_000)
+    # Check if already joined by looking for data tab link
+    data_link = page.query_selector(f'a[href*="/data/"]')
+    if data_link:
+        print(f"Data tab found - likely already joined: {slug} (ID: {comp_id})")
+        return
+
+    # Try to join - look for visible join/participate buttons
+    for selector in [
+        'a:visible:has-text("Join")',
+        'button:visible:has-text("Join")',
+        'a:visible:has-text("Participate")',
+        'button:visible:has-text("Participate")',
+        'a:visible:has-text("Register")',
+    ]:
+        btn = page.query_selector(selector)
+        if btn and btn.is_visible():
+            try:
+                btn.click(timeout=10_000)
                 page.wait_for_load_state("networkidle")
-            print(f"Joined competition: {slug} (ID: {comp_id})")
-        except Exception as e:
-            print(f"Join button found but click failed (likely already joined): {e}")
-    else:
-        print(f"Already joined or no join button: {slug} (ID: {comp_id})")
+                time.sleep(2)
+
+                # Handle rules acceptance page
+                for confirm_sel in [
+                    'button:visible:has-text("Accept")',
+                    'button:visible:has-text("Agree")',
+                    'button:visible:has-text("I accept")',
+                    'input:visible[type="submit"]',
+                    'button:visible[type="submit"]',
+                ]:
+                    confirm = page.query_selector(confirm_sel)
+                    if confirm and confirm.is_visible():
+                        # Check any required checkboxes first
+                        checkboxes = page.query_selector_all(
+                            'input[type="checkbox"]:not(:checked)'
+                        )
+                        for cb in checkboxes:
+                            if cb.is_visible():
+                                cb.check()
+                        confirm.click(timeout=10_000)
+                        page.wait_for_load_state("networkidle")
+                        time.sleep(2)
+                        break
+
+                print(f"Joined competition: {slug} (ID: {comp_id})")
+                return
+            except Exception as e:
+                print(f"Join attempt failed: {e}")
+
+    print(f"No join button found (may already be joined): {slug} (ID: {comp_id})")
 
 
 def download_data(page, comp_id: int, slug: str, track_dir: Path):
     """Download all data files from a competition's data page."""
     track_dir.mkdir(parents=True, exist_ok=True)
 
-    data_url = f"{BASE_URL}/competitions/{comp_id}/{slug}/data/"
-    page.goto(data_url)
+    # First navigate to competition page, then click Data tab
+    comp_url = f"{BASE_URL}/competitions/{comp_id}/{slug}/"
+    page.goto(comp_url)
     page.wait_for_load_state("networkidle")
     time.sleep(2)
+
+    # Click Data tab link if available
+    data_tab = page.query_selector(f'a[href*="/data/"]')
+    if data_tab:
+        data_tab.click()
+        page.wait_for_load_state("networkidle")
+        time.sleep(2)
+    else:
+        # Fallback: direct URL
+        data_url = f"{BASE_URL}/competitions/{comp_id}/{slug}/data/"
+        page.goto(data_url)
+        page.wait_for_load_state("networkidle")
+        time.sleep(2)
+
+    print(f"  Data page URL: {page.url}")
+    print(f"  Data page title: {page.title()}")
 
     # Find all download links
     download_links = page.query_selector_all(
