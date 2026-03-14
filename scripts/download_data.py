@@ -97,21 +97,35 @@ def download_data(page, comp_id: int, slug: str, track_dir: Path):
     page.wait_for_load_state("networkidle")
     time.sleep(2)
 
-    # Click Data tab link if available
+    # Save competition page screenshot for debugging
+    comp_screenshot = track_dir / "comp_page.png"
+    page.screenshot(path=str(comp_screenshot), full_page=True)
+    print(f"  Saved competition page screenshot: {comp_screenshot}")
+
+    # Try clicking Data tab link
     data_tab = page.query_selector(f'a[href*="/data/"]')
     if data_tab:
         data_tab.click()
         page.wait_for_load_state("networkidle")
         time.sleep(2)
-    else:
-        # Fallback: direct URL
-        data_url = f"{BASE_URL}/competitions/{comp_id}/{slug}/data/"
+
+    # If still not on data page or got 404, try direct URL
+    data_url = f"{BASE_URL}/competitions/{comp_id}/{slug}/data/"
+    if "Page not found" in page.title() or "/data/" not in page.url:
         page.goto(data_url)
         page.wait_for_load_state("networkidle")
         time.sleep(2)
 
     print(f"  Data page URL: {page.url}")
     print(f"  Data page title: {page.title()}")
+
+    # If still 404, save debug info and try to find data download from comp page
+    if "Page not found" in page.title():
+        print("  Data page returned 404. Trying alternative approaches...")
+        # Go back to comp page and look for direct download links
+        page.goto(comp_url)
+        page.wait_for_load_state("networkidle")
+        time.sleep(2)
 
     # Find all download links
     download_links = page.query_selector_all(
@@ -127,7 +141,7 @@ def download_data(page, comp_id: int, slug: str, track_dir: Path):
         )
 
     if not download_links:
-        print(f"  WARNING: No download links found on {data_url}")
+        print(f"  WARNING: No download links found")
         print(f"  Page title: {page.title()}")
         print(f"  Current URL: {page.url}")
         # Save page and screenshot for debugging
