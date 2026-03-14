@@ -1,0 +1,65 @@
+name: Download Competition Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      memo:
+        description: 'この実行の意図（必須）'
+        required: true
+        type: string
+
+jobs:
+  download:
+    name: Download DrivenData Competition Data
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install playwright
+          python -m playwright install chromium
+          python -m playwright install-deps
+
+      - name: Download competition data
+        env:
+          DRIVENDATA_EMAIL: ${{ secrets.DRIVENDATA_EMAIL }}
+          DRIVENDATA_PASSWORD: ${{ secrets.DRIVENDATA_PASSWORD }}
+          DOWNLOAD_DIR: data
+        run: python scripts/download_data.py
+
+      - name: Upload word track data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drivendata-word-data
+          path: data/word/
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Upload phonetic track data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drivendata-phonetic-data
+          path: data/phonetic/
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Notify Discord
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            MSG="✅ **DrivenDataデータDL完了**\nMemo: ${{ inputs.memo }}\n\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          else
+            MSG="❌ **DrivenDataデータDL失敗**\nMemo: ${{ inputs.memo }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"${MSG}\"}" || true
