@@ -1,0 +1,8 @@
+torch
+torchaudio
+nemo_toolkit[asr]>=2.5.0
+lightning
+librosa
+soundfile
+jiwer
+wandb

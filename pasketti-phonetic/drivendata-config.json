@@ -1,0 +1,10 @@
+{
+  "competition_id": 309,
+  "competition_slug": "childrens-phonetic-asr",
+  "submission_type": "code",
+  "artifact_name": "drivendata-phonetic-data",
+  "model_release_tag": "phonetic-model",
+  "base_model": "facebook/wav2vec2-base",
+  "metric": "CER",
+  "metric_direction": "minimize"
+}

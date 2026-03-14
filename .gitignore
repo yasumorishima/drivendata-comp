@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+data/
+*.nemo
+*.tar.gz
+model_*/

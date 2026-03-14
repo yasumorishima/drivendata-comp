@@ -1,0 +1,134 @@
+name: Package DrivenData Submission
+
+on:
+  workflow_dispatch:
+    inputs:
+      competition_dir:
+        description: "Competition directory (e.g. pasketti-phonetic)"
+        required: true
+        type: string
+      model_release_tag:
+        description: "GitHub Release tag containing model weights (e.g. phonetic-model-v1)"
+        required: true
+        type: string
+      memo:
+        description: "Run memo (experiment description)"
+        required: true
+        type: string
+
+jobs:
+  package:
+    name: Package submission ZIP
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download model from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Downloading model from release: ${{ inputs.model_release_tag }}"
+          mkdir -p staging/model
+
+          # List release assets
+          gh release view "${{ inputs.model_release_tag }}" --json assets --jq '.assets[].name'
+
+          # Download all assets
+          gh release download "${{ inputs.model_release_tag }}" -D staging/model
+
+          echo "Downloaded files:"
+          ls -lh staging/model/
+
+          # If there's a tar.gz, extract it
+          for f in staging/model/*.tar.gz; do
+            if [ -f "$f" ]; then
+              echo "Extracting: $f"
+              tar xzf "$f" -C staging/model/
+              rm "$f"
+            fi
+          done
+
+          echo "Final model files:"
+          find staging/model/ -type f | head -20
+          du -sh staging/model/
+
+      - name: Build submission ZIP
+        run: |
+          COMP_DIR="${{ inputs.competition_dir }}"
+          echo "Building submission for: ${COMP_DIR}"
+
+          mkdir -p staging/submission
+
+          # Copy inference script as main.py
+          cp "${COMP_DIR}/main.py" staging/submission/main.py
+
+          # Copy model directory
+          cp -r staging/model staging/submission/model
+
+          # Show structure
+          echo "Submission structure:"
+          find staging/submission/ -type f | head -30
+          du -sh staging/submission/
+
+          # Create ZIP
+          cd staging/submission
+          zip -r ../../submission.zip . -x "*.pyc" "__pycache__/*"
+          cd ../..
+
+          echo "ZIP created:"
+          ls -lh submission.zip
+          unzip -l submission.zip | head -20
+
+      - name: Validate submission structure
+        run: |
+          python3 - <<'PYEOF'
+          import zipfile, sys
+
+          with zipfile.ZipFile("submission.zip") as zf:
+              names = zf.namelist()
+
+          # main.py must be at root
+          if "main.py" not in names:
+              print("ERROR: main.py not found at ZIP root")
+              print("Files:", names[:10])
+              sys.exit(1)
+
+          # model directory must exist
+          model_files = [n for n in names if n.startswith("model/")]
+          if not model_files:
+              print("ERROR: No model/ directory in ZIP")
+              sys.exit(1)
+
+          print(f"OK: main.py at root, {len(model_files)} model files")
+          total_size = sum(zf.getinfo(n).file_size for n in names)
+          print(f"Uncompressed size: {total_size / 1024 / 1024:.1f} MB")
+          PYEOF
+
+      - name: Upload submission ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: submission-${{ inputs.competition_dir }}-${{ inputs.model_release_tag }}
+          path: submission.zip
+          retention-days: 90
+
+      - name: Notify Discord (success)
+        if: success()
+        run: |
+          CONFIG=$(cat "${{ inputs.competition_dir }}/drivendata-config.json")
+          COMP_ID=$(echo "$CONFIG" | python3 -c "import json,sys; print(json.load(sys.stdin).get('competition_id',''))")
+          COMP_SLUG=$(echo "$CONFIG" | python3 -c "import json,sys; print(json.load(sys.stdin).get('competition_slug',''))")
+          SUBMIT_URL="https://www.drivendata.org/competitions/${COMP_ID}/${COMP_SLUG}/submissions/"
+          ZIP_SIZE=$(du -h submission.zip | cut -f1)
+
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"📦 **DrivenData Submission ZIP作成完了**\nDir: \`${{ inputs.competition_dir }}\`\nModel: \`${{ inputs.model_release_tag }}\`\nSize: ${ZIP_SIZE}\nMemo: ${{ inputs.memo }}\n\n📤 Artifactをダウンロードして提出:\n${SUBMIT_URL}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
+
+      - name: Notify Discord (failure)
+        if: failure()
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"❌ **DrivenData Submission ZIP作成失敗**\nDir: \`${{ inputs.competition_dir }}\`\nModel: \`${{ inputs.model_release_tag }}\`\nMemo: ${{ inputs.memo }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true

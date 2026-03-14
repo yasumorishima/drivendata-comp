@@ -1,0 +1,10 @@
+{
+  "competition_id": 308,
+  "competition_slug": "childrens-word-asr",
+  "submission_type": "code",
+  "artifact_name": "drivendata-word-data",
+  "model_release_tag": "word-model",
+  "base_model": "nvidia/parakeet-tdt-0.6b-v2",
+  "metric": "WER",
+  "metric_direction": "minimize"
+}

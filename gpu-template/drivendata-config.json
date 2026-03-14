@@ -1,0 +1,10 @@
+{
+  "competition_id": 0,
+  "competition_slug": "competition-slug-here",
+  "submission_type": "code",
+  "artifact_name": "drivendata-<track>-data",
+  "model_release_tag": "<track>-model",
+  "base_model": "model-name-here",
+  "metric": "metric-name",
+  "metric_direction": "minimize"
+}
