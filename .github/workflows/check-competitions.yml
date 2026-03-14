@@ -1,0 +1,136 @@
+name: Check Competitions
+
+on:
+  workflow_dispatch:
+    inputs:
+      memo:
+        description: 'この実行の意図（必須）'
+        required: true
+        type: string
+
+jobs:
+  drivendata:
+    name: DrivenData Active Competitions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fetch and summarize competitions
+        run: |
+          python3 - <<'PYEOF'
+          import html as html_mod
+          import os, re, urllib.request
+          from datetime import datetime, timezone
+
+          url = "https://www.drivendata.org/competitions/"
+          req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+          html = urllib.request.urlopen(req, timeout=30).read().decode("utf-8")
+
+          # Find active competitions section
+          start = html.find('id="active_competitions"')
+          if start == -1:
+              print("❌ active_competitions section not found")
+              raise SystemExit(1)
+
+          # Find the next major section after active
+          end_markers = ['id="past_competitions"', 'id="practice_competitions"']
+          end = len(html)
+          for marker in end_markers:
+              pos = html.find(marker, start + 30)
+              if pos != -1 and pos < end:
+                  end = pos
+          section = html[start:end]
+
+          # Parse competition panels via data attributes
+          panel_pattern = re.compile(
+              r'class="[^"]*panel-container[^"]*active-comp[^"]*"'
+              r'\s+data-start_date="(\d+)"'
+              r'\s+data-deadline="([^"]*)"'
+              r'\s+data-joined="(\d+)"'
+              r'\s+data-total_prize_purse="([^"]*)"'
+          )
+
+          title_pattern = re.compile(
+              r"href='(/competitions/[^']+/)'\s*class=\"text-decoration-none\">\s*\n*\s*([^<]+)"
+          )
+          category_pattern = re.compile(
+              r'href="/competitions/search/\?category=([^"]+)"'
+          )
+
+          panels = list(panel_pattern.finditer(section))
+          titles = list(title_pattern.finditer(section))
+          categories = list(category_pattern.finditer(section))
+
+          comps = []
+          for i, panel in enumerate(panels):
+              start_date = panel.group(1)  # e.g. "20260130"
+              raw_deadline = panel.group(2)  # e.g. "-120260406"
+              joined = int(panel.group(3))
+              prize_raw = panel.group(4)
+
+              # Parse deadline: strip leading "-1" prefix if present
+              dl_str = raw_deadline.lstrip("-1")
+              try:
+                  deadline = datetime.strptime(dl_str, "%Y%m%d")
+              except ValueError:
+                  deadline = None
+
+              # Parse prize
+              try:
+                  prize = float(prize_raw)
+                  if prize >= 1000:
+                      prize_str = f"${prize:,.0f}"
+                  elif prize > 0:
+                      prize_str = f"${prize:.0f}"
+                  else:
+                      prize_str = "-"
+              except (ValueError, TypeError):
+                  prize_str = "-"
+
+              # Title and URL
+              if i < len(titles):
+                  url_path = titles[i].group(1)
+                  title = html_mod.unescape(titles[i].group(2).strip())
+              else:
+                  url_path = ""
+                  title = "(unknown)"
+
+              # Category
+              if i < len(categories):
+                  category = categories[i].group(1)
+              else:
+                  category = "-"
+
+              comps.append({
+                  "title": title,
+                  "url": f"https://www.drivendata.org{url_path}" if url_path else "",
+                  "deadline": deadline,
+                  "deadline_str": deadline.strftime("%Y-%m-%d") if deadline else "N/A",
+                  "joined": joined,
+                  "prize": prize_str,
+                  "category": category,
+              })
+
+          # Sort by deadline (soonest first)
+          now = datetime.now(timezone.utc).replace(tzinfo=None)
+          comps = [c for c in comps if c["deadline"] is None or c["deadline"] > now]
+          comps.sort(key=lambda c: c["deadline"] or datetime.max)
+
+          # Console output
+          print(f"## DrivenData Active Competitions ({len(comps)} active)\n")
+          print(f"{'Deadline':<12} {'Category':<16} {'Prize':<14} {'Joined':<8} Title")
+          print("-" * 90)
+          for c in comps:
+              print(f"{c['deadline_str']:<12} {c['category']:<16} {c['prize']:<14} {c['joined']:<8} {c['title'][:50]}")
+
+          # GitHub Step Summary
+          out = os.environ.get("GITHUB_STEP_SUMMARY", "/dev/null")
+          with open(out, "a", encoding="utf-8") as f:
+              f.write(f"## DrivenData Active Competitions ({len(comps)} active)\n\n")
+              f.write("| Competition | Deadline | Category | Prize | Joined |\n")
+              f.write("|---|---|---|---|---|\n")
+              for c in comps:
+                  title = c["title"][:55]
+                  if c["url"]:
+                      title = f"[{title}]({c['url']})"
+                  f.write(f"| {title} | {c['deadline_str']} | {c['category']} | {c['prize']} | {c['joined']} |\n")
+          PYEOF
