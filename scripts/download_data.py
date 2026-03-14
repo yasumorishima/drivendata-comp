@@ -8,8 +8,8 @@ from playwright.sync_api import sync_playwright
 
 BASE_URL = "https://www.drivendata.org"
 COMPETITIONS = {
-    "word": {"id": 308, "slug": "childrens-asr-word"},
-    "phonetic": {"id": 309, "slug": "childrens-asr-phonetic"},
+    "word": {"id": 308, "slug": "childrens-word-asr"},
+    "phonetic": {"id": 309, "slug": "childrens-phonetic-asr"},
 }
 DOWNLOAD_DIR = Path(os.environ.get("DOWNLOAD_DIR", "data"))
 
