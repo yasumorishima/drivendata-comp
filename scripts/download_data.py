@@ -35,19 +35,25 @@ def join_competition(page, comp_id: int, slug: str):
     page.goto(url)
     page.wait_for_load_state("networkidle")
 
-    join_btn = page.query_selector('button:has-text("Join"), a:has-text("Join")')
-    if join_btn:
-        join_btn.click()
-        page.wait_for_load_state("networkidle")
-        # Handle any confirmation
-        confirm = page.query_selector(
-            'button:has-text("Confirm"), button:has-text("Accept"), '
-            'button:has-text("Agree"), input[type="submit"]'
-        )
-        if confirm:
-            confirm.click()
+    # Only click visible join buttons
+    join_btn = page.query_selector(
+        'button:visible:has-text("Join"), a:visible:has-text("Join")'
+    )
+    if join_btn and join_btn.is_visible():
+        try:
+            join_btn.click(timeout=10_000)
             page.wait_for_load_state("networkidle")
-        print(f"Joined competition: {slug} (ID: {comp_id})")
+            # Handle any confirmation
+            confirm = page.query_selector(
+                'button:visible:has-text("Confirm"), button:visible:has-text("Accept"), '
+                'button:visible:has-text("Agree"), input:visible[type="submit"]'
+            )
+            if confirm and confirm.is_visible():
+                confirm.click(timeout=10_000)
+                page.wait_for_load_state("networkidle")
+            print(f"Joined competition: {slug} (ID: {comp_id})")
+        except Exception as e:
+            print(f"Join button found but click failed (likely already joined): {e}")
     else:
         print(f"Already joined or no join button: {slug} (ID: {comp_id})")
 
@@ -77,10 +83,22 @@ def download_data(page, comp_id: int, slug: str, track_dir: Path):
     if not download_links:
         print(f"  WARNING: No download links found on {data_url}")
         print(f"  Page title: {page.title()}")
-        # Save page for debugging
+        print(f"  Current URL: {page.url}")
+        # Save page and screenshot for debugging
         debug_file = track_dir / "debug_page.html"
         debug_file.write_text(page.content(), encoding="utf-8")
         print(f"  Saved page HTML to {debug_file}")
+        screenshot_file = track_dir / "debug_screenshot.png"
+        page.screenshot(path=str(screenshot_file), full_page=True)
+        print(f"  Saved screenshot to {screenshot_file}")
+        # List all links on page for debugging
+        all_links = page.query_selector_all("a[href]")
+        print(f"  All links on page ({len(all_links)}):")
+        for link in all_links[:30]:
+            href = link.get_attribute("href") or ""
+            text = (link.inner_text() or "").strip()[:60]
+            if text:
+                print(f"    {text} -> {href}")
         return
 
     seen_urls = set()
