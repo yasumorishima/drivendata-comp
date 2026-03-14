@@ -1,0 +1,314 @@
+name: DrivenData GPU Train (Kaggle)
+
+on:
+  workflow_dispatch:
+    inputs:
+      competition_dir:
+        description: "Competition directory (e.g. pasketti-phonetic)"
+        required: true
+        type: string
+      model_release_tag:
+        description: "GitHub Release tag for model weights (e.g. phonetic-model-v1)"
+        required: true
+        type: string
+      memo:
+        description: "Experiment description (required)"
+        required: true
+        type: string
+      model_name:
+        description: "Base model (default: from config)"
+        required: false
+        type: string
+      epochs:
+        description: "Training epochs (default: 20)"
+        required: false
+        type: string
+        default: "20"
+      batch_size:
+        description: "Batch size (default: 16)"
+        required: false
+        type: string
+        default: "16"
+      learning_rate:
+        description: "Learning rate (default: 5e-5)"
+        required: false
+        type: string
+        default: "5e-5"
+
+jobs:
+  train:
+    name: Train on Kaggle GPU
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install kaggle wandb
+
+      - name: Read competition config
+        id: config
+        run: |
+          CONFIG="${{ inputs.competition_dir }}/drivendata-config.json"
+          ARTIFACT_NAME=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('artifact_name',''))")
+          BASE_MODEL=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('base_model',''))")
+          KERNEL_ID=$(python3 -c "import json; print(json.load(open('${{ inputs.competition_dir }}/kernel-metadata.json')).get('id',''))")
+
+          # Use input model_name if provided, otherwise config default
+          MODEL_NAME="${{ inputs.model_name }}"
+          if [ -z "$MODEL_NAME" ]; then
+            MODEL_NAME="$BASE_MODEL"
+          fi
+
+          echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+          echo "model_name=$MODEL_NAME" >> "$GITHUB_OUTPUT"
+          echo "kernel_id=$KERNEL_ID" >> "$GITHUB_OUTPUT"
+          echo "Config: artifact=$ARTIFACT_NAME model=$MODEL_NAME kernel=$KERNEL_ID"
+
+      - name: Generate training notebook
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+          RUN_MEMO: ${{ inputs.memo }}
+          MODEL_NAME: ${{ steps.config.outputs.model_name }}
+          EPOCHS: ${{ inputs.epochs }}
+          BATCH_SIZE: ${{ inputs.batch_size }}
+          LEARNING_RATE: ${{ inputs.learning_rate }}
+          GRADIENT_ACCUMULATION: "4"
+          ARTIFACT_NAME: ${{ steps.config.outputs.artifact_name }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd "${{ inputs.competition_dir }}"
+          python generate_notebook.py
+
+      - name: Push and poll with GPU fallback
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          KERNEL_ID="${{ steps.config.outputs.kernel_id }}"
+          NB_DIR="${{ inputs.competition_dir }}"
+          METADATA="$NB_DIR/kernel-metadata.json"
+
+          wait_for_idle() {
+            for i in $(seq 1 20); do
+              RAW=$(kaggle kernels status "$KERNEL_ID" 2>&1) || true
+              echo "Pre-push check $i/20: $RAW"
+              STATUS=$(echo "$RAW" | sed 's/.*has status "\([^"]*\)".*/\1/')
+              if [ -z "$STATUS" ] || echo "$STATUS" | grep -qiE "COMPLETE|ERROR|CANCEL"; then
+                return 0
+              fi
+              echo "Kernel still running, waiting 30s..."
+              sleep 30
+            done
+          }
+
+          poll_until_done() {
+            # ASR training can take hours — poll for up to 6 hours
+            for i in $(seq 1 720); do
+              RAW=$(kaggle kernels status "$KERNEL_ID" 2>&1) || true
+              STATUS=$(echo "$RAW" | sed 's/.*has status "\([^"]*\)".*/\1/')
+              if [ $((i % 10)) -eq 0 ]; then
+                echo "Attempt $i/720: $STATUS"
+              fi
+              if echo "$STATUS" | grep -qiE "COMPLETE"; then
+                echo "Kernel completed successfully."
+                return 0
+              fi
+              if echo "$STATUS" | grep -qiE "ERROR|CANCEL"; then
+                echo "Kernel failed: $(kaggle kernels status "$KERNEL_ID" 2>&1 || true)"
+                return 1
+              fi
+              sleep 30
+            done
+            echo "Timeout: kernel did not complete in 6 hours."
+            return 1
+          }
+
+          ORIG_GPU=$(python3 -c "import json; print(json.load(open('$METADATA')).get('enable_gpu','false'))")
+          echo "ORIG_GPU=$ORIG_GPU" >> "$GITHUB_ENV"
+
+          # Push
+          wait_for_idle
+          echo "=== Pushing kernel with enable_gpu=$ORIG_GPU ==="
+          PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
+          echo "Push output: $PUSH_OUTPUT"
+
+          # Check GPU quota
+          GPU_QUOTA_HIT=false
+          SESSION_LIMIT_HIT=false
+          if echo "$PUSH_OUTPUT" | grep -qiE "session count.*reached"; then
+            SESSION_LIMIT_HIT=true
+            GPU_QUOTA_HIT=true
+          elif echo "$PUSH_OUTPUT" | grep -qiE "quota.*reached|GPU quota"; then
+            GPU_QUOTA_HIT=true
+          fi
+
+          if [ "$GPU_QUOTA_HIT" = "false" ]; then
+            if poll_until_done; then
+              exit 0
+            fi
+          fi
+
+          # Session limit retry
+          if [ "$SESSION_LIMIT_HIT" = "true" ]; then
+            echo "=== GPU session limit — retrying ==="
+            curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d '{"content": "⏳ **GPUセッション上限 → リトライ中**\nKernel: `'"$KERNEL_ID"'`"}' || true
+
+            for retry in $(seq 1 12); do
+              echo "GPU retry $retry/12: waiting 5 minutes..."
+              sleep 300
+              wait_for_idle
+              PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
+              if ! echo "$PUSH_OUTPUT" | grep -qiE "session count.*reached|quota.*reached|GPU quota"; then
+                if poll_until_done; then
+                  exit 0
+                else
+                  exit 1
+                fi
+              fi
+            done
+          fi
+
+          # CPU fallback (ASR on CPU is very slow, but better than nothing)
+          if [ "$ORIG_GPU" = "true" ]; then
+            echo "=== GPU quota exhausted. Falling back to CPU ==="
+            python3 -c "
+          import json
+          with open('$METADATA') as f:
+              meta = json.load(f)
+          meta['enable_gpu'] = 'false'
+          with open('$METADATA', 'w') as f:
+              json.dump(meta, f, indent=2)
+          "
+            curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d '{"content": "⚠️ **GPUクォータ切れ → CPUフォールバック**\nKernel: `'"$KERNEL_ID"'`\nASR学習はCPUでは非常に遅くなります。"}' || true
+
+            wait_for_idle
+            kaggle kernels push -p "$NB_DIR"
+            poll_until_done
+          else
+            exit 1
+          fi
+
+      - name: Restore GPU setting
+        if: always()
+        run: |
+          METADATA="${{ inputs.competition_dir }}/kernel-metadata.json"
+          ORIG_GPU="${{ env.ORIG_GPU }}"
+          if [ -n "$ORIG_GPU" ]; then
+            python3 -c "
+          import json
+          with open('$METADATA') as f:
+              meta = json.load(f)
+          meta['enable_gpu'] = '$ORIG_GPU'
+          with open('$METADATA', 'w') as f:
+              json.dump(meta, f, indent=2)
+          "
+          fi
+
+      - name: Show kernel diagnostics on failure
+        if: failure()
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          KERNEL_ID="${{ steps.config.outputs.kernel_id }}"
+          SLUG=$(echo "$KERNEL_ID" | cut -d'/' -f2)
+          mkdir -p ./kernel_log_out
+          kaggle kernels output "$KERNEL_ID" -p ./kernel_log_out || true
+          LOG_FILE="./kernel_log_out/${SLUG}.log"
+          if [ -f "$LOG_FILE" ]; then
+            echo "--- stdout (last 50 lines) ---"
+            python3 -c "import json; entries=json.load(open('$LOG_FILE')); lines=[e['data'] for e in entries if e.get('stream_name')=='stdout']; print(''.join(lines[-50:]),end='')" || true
+            echo ""
+            echo "--- stderr (last 30 lines) ---"
+            python3 -c "import json; entries=json.load(open('$LOG_FILE')); errs=[e['data'] for e in entries if e.get('stream_name')=='stderr']; print(''.join(errs[-30:]),end='')" || true
+          else
+            echo "No log file found."
+            ls -la ./kernel_log_out/ || true
+          fi
+
+      - name: Download kernel output
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          KERNEL_ID="${{ steps.config.outputs.kernel_id }}"
+          mkdir -p ./kaggle_output
+          kaggle kernels output "$KERNEL_ID" -p ./kaggle_output
+          echo "Downloaded files:"
+          find ./kaggle_output -type f -exec ls -lh {} \;
+
+      - name: Create GitHub Release with model
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ inputs.model_release_tag }}"
+          MODEL_TAR=$(find ./kaggle_output -name "model_*.tar.gz" | head -1)
+
+          if [ -z "$MODEL_TAR" ]; then
+            echo "ERROR: No model tar.gz found in kernel output"
+            find ./kaggle_output -type f
+            exit 1
+          fi
+
+          SIZE=$(du -h "$MODEL_TAR" | cut -f1)
+          echo "Model: $MODEL_TAR ($SIZE)"
+
+          # Delete existing release if any
+          gh release delete "$TAG" --yes 2>/dev/null || true
+
+          gh release create "$TAG" "$MODEL_TAR" \
+            --title "$TAG" \
+            --notes "$(cat <<NOTES
+          **${{ inputs.memo }}**
+
+          - Competition: ${{ inputs.competition_dir }}
+          - Model: ${{ steps.config.outputs.model_name }}
+          - Epochs: ${{ inputs.epochs }}
+          - LR: ${{ inputs.learning_rate }}
+          - Size: $SIZE
+          - Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NOTES
+          )"
+
+          echo "Release created: $TAG"
+
+      - name: Sync W&B offline runs
+        env:
+          WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+        run: |
+          WANDB_DIRS=$(find ./kaggle_output -type d -name "offline-run-*" 2>/dev/null)
+          if [ -z "$WANDB_DIRS" ]; then
+            echo "No W&B offline runs found."
+          else
+            for dir in $WANDB_DIRS; do
+              echo "Syncing: $dir"
+              wandb sync "$dir" || true
+            done
+          fi
+
+      - name: Notify Discord (success)
+        if: success()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"✅ **DrivenData GPU学習完了**\nDir: \`${{ inputs.competition_dir }}\`\nModel: \`${{ inputs.model_release_tag }}\`\nMemo: ${{ inputs.memo }}\n\n次: Package DrivenData Submission を実行\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
+
+      - name: Notify Discord (failure)
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"❌ **DrivenData GPU学習失敗**\nDir: \`${{ inputs.competition_dir }}\`\nMemo: ${{ inputs.memo }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true

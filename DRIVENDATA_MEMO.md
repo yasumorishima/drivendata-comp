@@ -7,6 +7,7 @@
 | Check Competitions | アクティブコンペ一覧取得 | memo |
 | Download Competition Data | Playwrightでデータ自動DL→Artifact | memo |
 | DrivenData Train & Validate | CSV提出型コンペの学習→提出ファイル作成 | competition_dir, memo |
+| DrivenData GPU Train (Kaggle) | GPU学習：Kaggle P100で学習→Release | competition_dir, model_release_tag, memo, ... |
 | Package DrivenData Submission | コード提出型：モデル+main.py→submission ZIP | competition_dir, model_release_tag, memo |
 
 ## CSV提出型（tabular）ワークフロー
@@ -48,38 +49,24 @@ gh workflow run "Download Competition Data" \
   -f memo="Pasketti初回DL"
 ```
 
-### Step 2: Colabで学習
+### Step 2: GPU学習（全自動）
 
-```python
-# --- Colab Cell 1: セットアップ ---
-!pip install -q requests
-import os
-from google.colab import userdata
-os.environ["GH_TOKEN"] = userdata.get("GH_TOKEN")
-
-!git clone https://github.com/yasumorishima/drivendata-comp.git
-%cd drivendata-comp
-
-# --- Colab Cell 2: データダウンロード ---
-!python scripts/colab_data_download.py \
-    --artifact drivendata-phonetic-data \
-    --output data/phonetic
-
-# --- Colab Cell 3: 学習 ---
-!pip install -q -r pasketti-phonetic/requirements-train.txt
-!python pasketti-phonetic/train.py \
-    --data_dir data/phonetic \
-    --output_dir model_phonetic \
-    --memo "v1: wav2vec2-base baseline"
-
-# --- Colab Cell 4: モデルをGitHub Releaseにアップロード ---
-!tar czf model_phonetic.tar.gz -C model_phonetic/final_model .
-!gh auth login --with-token <<< "$GH_TOKEN"
-!gh release create phonetic-model-v1 model_phonetic.tar.gz \
-    --repo yasumorishima/drivendata-comp \
-    --title "Phonetic model v1" \
-    --notes "wav2vec2-base CTC fine-tune, CER=xxx"
+```bash
+gh workflow run "DrivenData GPU Train (Kaggle)" \
+  --repo yasumorishima/drivendata-comp \
+  -f competition_dir=pasketti-phonetic \
+  -f model_release_tag=phonetic-model-v1 \
+  -f memo="v1: wav2vec2-base baseline"
 ```
+
+自動で行われること:
+1. generate_notebook.py でKaggle用ノートブック生成
+2. kaggle kernels push（P100 GPU）
+3. ポーリング（完了まで最大6時間待機）
+4. kernel outputダウンロード
+5. GitHub Releaseにモデルアップロード
+6. W&B offline run同期
+7. Discord通知
 
 ### Step 3: Submission ZIPパッケージング
 
@@ -105,10 +92,12 @@ Artifactから `submission.zip` をダウンロード → DrivenDataコンペペ
 
 ### コード提出型（GPU）
 1. `gpu-template/` をコピーして `<comp-name>/` を作成
-2. `drivendata-config.json` を編集（submission_type: "code"）
-3. `train.py` を実装（Colabで実行する学習スクリプト）
+2. `drivendata-config.json` を編集（submission_type: "code", artifact_name, base_model等）
+3. `train.py` を実装（Kaggle GPUで実行する学習スクリプト）
 4. `main.py` を実装（DrivenDataランタイムで実行する推論スクリプト）
-5. `requirements-train.txt` を作成
+5. `generate_notebook.py` を実装（train.pyをKaggleノートブック化）
+6. `kernel-metadata.json` を作成（Kaggle kernel設定）
+7. `requirements-train.txt` を作成
 
 ## データDLについて
 
@@ -124,10 +113,5 @@ Artifactから `submission.zip` をダウンロード → DrivenDataコンペペ
 | `DISCORD_WEBHOOK_URL` | Discord通知 |
 | `DRIVENDATA_EMAIL` | DrivenDataログイン |
 | `DRIVENDATA_PASSWORD` | DrivenDataパスワード |
-
-## Colab Secrets
-
-| Key | 内容 |
-|---|---|
-| `GH_TOKEN` | GitHub PAT（Artifact DL + Release作成に必要） |
-| `WANDB_API_KEY` | W&B APIキー |
+| `KAGGLE_API_TOKEN` | Kaggle APIトークン（kernels push用） |
+| `GH_PAT` | GitHub PAT（Kaggle kernelからArtifact DL用） |
