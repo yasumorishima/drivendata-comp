@@ -1,6 +1,7 @@
 """DrivenData competition data downloader using Playwright."""
 
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -12,6 +13,9 @@ COMPETITIONS = {
     "phonetic": {"id": 309, "slug": "childrens-phonetic-asr"},
 }
 DOWNLOAD_DIR = Path(os.environ.get("DOWNLOAD_DIR", "data"))
+
+# File extensions that indicate real downloads
+DOWNLOAD_EXTENSIONS = re.compile(r"\.(zip|tar|gz|csv|json|jsonl|flac|wav|tsv)(\?|$)", re.I)
 
 
 def login(page, email: str, password: str):
@@ -29,166 +33,100 @@ def login(page, email: str, password: str):
     print(f"Logged in successfully. Redirected to: {page.url}")
 
 
-def join_competition(page, comp_id: int, slug: str):
-    """Join a competition if not already joined."""
-    url = f"{BASE_URL}/competitions/{comp_id}/{slug}/"
-    page.goto(url)
-    page.wait_for_load_state("networkidle")
-    time.sleep(2)
-
-    # Check if already joined by looking for data tab link
-    data_link = page.query_selector(f'a[href*="/data/"]')
-    if data_link:
-        print(f"Data tab found - likely already joined: {slug} (ID: {comp_id})")
-        return
-
-    # Try to join - look for visible join/participate buttons
-    for selector in [
-        'a:visible:has-text("Join")',
-        'button:visible:has-text("Join")',
-        'a:visible:has-text("Participate")',
-        'button:visible:has-text("Participate")',
-        'a:visible:has-text("Register")',
-    ]:
-        btn = page.query_selector(selector)
-        if btn and btn.is_visible():
-            try:
-                btn.click(timeout=10_000)
-                page.wait_for_load_state("networkidle")
-                time.sleep(2)
-
-                # Handle rules acceptance page
-                for confirm_sel in [
-                    'button:visible:has-text("Accept")',
-                    'button:visible:has-text("Agree")',
-                    'button:visible:has-text("I accept")',
-                    'input:visible[type="submit"]',
-                    'button:visible[type="submit"]',
-                ]:
-                    confirm = page.query_selector(confirm_sel)
-                    if confirm and confirm.is_visible():
-                        # Check any required checkboxes first
-                        checkboxes = page.query_selector_all(
-                            'input[type="checkbox"]:not(:checked)'
-                        )
-                        for cb in checkboxes:
-                            if cb.is_visible():
-                                cb.check()
-                        confirm.click(timeout=10_000)
-                        page.wait_for_load_state("networkidle")
-                        time.sleep(2)
-                        break
-
-                print(f"Joined competition: {slug} (ID: {comp_id})")
-                return
-            except Exception as e:
-                print(f"Join attempt failed: {e}")
-
-    print(f"No join button found (may already be joined): {slug} (ID: {comp_id})")
-
-
 def download_data(page, comp_id: int, slug: str, track_dir: Path):
     """Download all data files from a competition's data page."""
     track_dir.mkdir(parents=True, exist_ok=True)
 
-    # First navigate to competition page, then click Data tab
-    comp_url = f"{BASE_URL}/competitions/{comp_id}/{slug}/"
-    page.goto(comp_url)
-    page.wait_for_load_state("networkidle")
-    time.sleep(2)
-
-    # Save competition page screenshot for debugging
-    comp_screenshot = track_dir / "comp_page.png"
-    page.screenshot(path=str(comp_screenshot), full_page=True)
-    print(f"  Saved competition page screenshot: {comp_screenshot}")
-
-    # Try clicking Data tab link
-    data_tab = page.query_selector(f'a[href*="/data/"]')
-    if data_tab:
-        data_tab.click()
-        page.wait_for_load_state("networkidle")
-        time.sleep(2)
-
-    # If still not on data page or got 404, try direct URL
     data_url = f"{BASE_URL}/competitions/{comp_id}/{slug}/data/"
-    if "Page not found" in page.title() or "/data/" not in page.url:
-        page.goto(data_url)
-        page.wait_for_load_state("networkidle")
-        time.sleep(2)
+    page.goto(data_url)
+    page.wait_for_load_state("networkidle")
+    time.sleep(3)
 
     print(f"  Data page URL: {page.url}")
     print(f"  Data page title: {page.title()}")
 
-    # If still 404, save debug info and try to find data download from comp page
+    # Save data page screenshot
+    page.screenshot(path=str(track_dir / "data_page.png"), full_page=True)
+
     if "Page not found" in page.title():
-        print("  Data page returned 404. Trying alternative approaches...")
-        # Go back to comp page and look for direct download links
-        page.goto(comp_url)
-        page.wait_for_load_state("networkidle")
-        time.sleep(2)
+        print("  ERROR: Data page returned 404. Is the competition joined?")
+        return False
 
-    # Find all download links
-    download_links = page.query_selector_all(
-        'a[href*="download"], a:has-text("Download"), '
-        'a[href*=".zip"], a[href*=".tar"], a[href*=".csv"], '
-        'a[href*=".json"], a[href*=".jsonl"]'
-    )
+    # Save HTML for analysis
+    html = page.content()
+    (track_dir / "data_page.html").write_text(html, encoding="utf-8")
 
-    if not download_links:
-        # Try alternative: look for download buttons
-        download_links = page.query_selector_all(
-            'button:has-text("Download"), a.btn:has-text("Download")'
-        )
-
-    if not download_links:
-        print(f"  WARNING: No download links found")
-        print(f"  Page title: {page.title()}")
-        print(f"  Current URL: {page.url}")
-        # Save page and screenshot for debugging
-        debug_file = track_dir / "debug_page.html"
-        debug_file.write_text(page.content(), encoding="utf-8")
-        print(f"  Saved page HTML to {debug_file}")
-        screenshot_file = track_dir / "debug_screenshot.png"
-        page.screenshot(path=str(screenshot_file), full_page=True)
-        print(f"  Saved screenshot to {screenshot_file}")
-        # List all links on page for debugging
-        all_links = page.query_selector_all("a[href]")
-        print(f"  All links on page ({len(all_links)}):")
-        for link in all_links[:30]:
-            href = link.get_attribute("href") or ""
-            text = (link.inner_text() or "").strip()[:60]
-            if text:
-                print(f"    {text} -> {href}")
-        return
-
-    seen_urls = set()
-    for i, link in enumerate(download_links):
-        href = link.get_attribute("href") or ""
-        text = (link.inner_text() or "").strip()
-
-        # Deduplicate
-        if href in seen_urls:
+    # Collect all links with their hrefs
+    all_anchors = page.query_selector_all("a[href]")
+    download_candidates = []
+    for a in all_anchors:
+        try:
+            href = a.get_attribute("href") or ""
+            text = (a.inner_text() or "").strip()[:80]
+        except Exception:
             continue
-        seen_urls.add(href)
 
-        print(f"  [{i+1}/{len(download_links)}] Downloading: {text or href}")
+        # Filter: only actual file downloads
+        is_file = bool(DOWNLOAD_EXTENSIONS.search(href))
+        is_download_endpoint = "download" in href.lower() and href != data_url
+        # Exclude navigation links (same-site page links without file extensions)
+        is_nav = bool(re.match(r"^/competitions/\d+/[^?]*/$", href))
+
+        if (is_file or is_download_endpoint) and not is_nav:
+            download_candidates.append({"href": href, "text": text, "element": a})
+
+    # Deduplicate by href
+    seen = set()
+    unique = []
+    for c in download_candidates:
+        if c["href"] not in seen:
+            seen.add(c["href"])
+            unique.append(c)
+
+    print(f"  Found {len(unique)} download links")
+    for c in unique:
+        print(f"    {c['text'][:50]} -> {c['href'][:100]}")
+
+    if not unique:
+        print("  WARNING: No download links found. Listing all links on page:")
+        for a in all_anchors[:40]:
+            try:
+                href = a.get_attribute("href") or ""
+                text = (a.inner_text() or "").strip()[:60]
+                if text and not href.startswith("#"):
+                    print(f"    {text} -> {href[:100]}")
+            except Exception:
+                pass
+        return False
+
+    success_count = 0
+    for i, candidate in enumerate(unique):
+        href = candidate["href"]
+        text = candidate["text"]
+        elem = candidate["element"]
+        print(f"  [{i+1}/{len(unique)}] Downloading: {text or href[:60]}")
 
         try:
             with page.expect_download(timeout=300_000) as download_info:
-                link.click()
+                elem.click()
             download = download_info.value
             filename = download.suggested_filename
             save_path = track_dir / filename
             download.save_as(str(save_path))
             size_mb = save_path.stat().st_size / (1024 * 1024)
-            print(f"    Saved: {save_path} ({size_mb:.1f} MB)")
+            print(f"    OK: {filename} ({size_mb:.1f} MB)")
+            success_count += 1
         except Exception as e:
-            print(f"    Failed: {e}")
-            # If click navigated instead of downloading, go back
-            if data_url not in page.url:
+            err_msg = str(e).split("\n")[0][:100]
+            print(f"    SKIP: {err_msg}")
+            # If navigation happened, go back to data page
+            if "/data/" not in page.url:
                 page.goto(data_url)
                 page.wait_for_load_state("networkidle")
-                time.sleep(1)
+                time.sleep(2)
+
+    print(f"  Downloaded {success_count}/{len(unique)} files")
+    return success_count > 0
 
 
 def main():
@@ -199,38 +137,40 @@ def main():
         sys.exit(1)
 
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    any_success = False
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
 
-        # Login
         login(page, email, password)
 
         for track, info in COMPETITIONS.items():
             print(f"\n=== {track.upper()} TRACK (ID: {info['id']}) ===")
             track_dir = DOWNLOAD_DIR / track
-
-            # Join competition
-            join_competition(page, info["id"], info["slug"])
-
-            # Download data
-            print(f"Downloading data...")
-            download_data(page, info["id"], info["slug"], track_dir)
+            result = download_data(page, info["id"], info["slug"], track_dir)
+            if result:
+                any_success = True
 
         browser.close()
 
     # Summary
     print("\n=== DOWNLOAD SUMMARY ===")
-    for track_dir in DOWNLOAD_DIR.iterdir():
+    for track_dir in sorted(DOWNLOAD_DIR.iterdir()):
         if track_dir.is_dir():
-            files = list(track_dir.glob("*"))
-            files = [f for f in files if f.name != "debug_page.html"]
-            total = sum(f.stat().st_size for f in files if f.is_file())
+            files = [
+                f for f in track_dir.glob("*")
+                if f.is_file() and f.suffix not in (".html", ".png")
+            ]
+            total = sum(f.stat().st_size for f in files)
             print(f"{track_dir.name}/: {len(files)} files, {total / (1024*1024):.1f} MB")
             for f in sorted(files):
                 print(f"  {f.name} ({f.stat().st_size / (1024*1024):.1f} MB)")
+
+    if not any_success:
+        print("\nERROR: No files downloaded from any track.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
