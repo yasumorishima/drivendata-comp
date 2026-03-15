@@ -86,9 +86,18 @@ jobs:
           cd "${{ inputs.competition_dir }}"
           python generate_notebook.py
 
-      - name: Push and poll with GPU fallback
+      - name: Setup Kaggle credentials
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          mkdir -p ~/.kaggle
+          echo "$KAGGLE_API_TOKEN" > ~/.kaggle/kaggle.json
+          chmod 600 ~/.kaggle/kaggle.json
+          # Verify auth works
+          kaggle kernels list --mine --page-size 1 || { echo "ERROR: Kaggle auth failed"; exit 1; }
+
+      - name: Push and poll with GPU fallback
+        env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           KERNEL_ID="${{ steps.config.outputs.kernel_id }}"
@@ -217,8 +226,6 @@ jobs:
 
       - name: Show kernel diagnostics on failure
         if: failure()
-        env:
-          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
           KERNEL_ID="${{ steps.config.outputs.kernel_id }}"
           SLUG=$(echo "$KERNEL_ID" | cut -d'/' -f2)
@@ -237,8 +244,6 @@ jobs:
           fi
 
       - name: Download kernel output
-        env:
-          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
           KERNEL_ID="${{ steps.config.outputs.kernel_id }}"
           mkdir -p ./kaggle_output
