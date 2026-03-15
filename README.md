@@ -61,9 +61,9 @@ Children's speech differs significantly from adult speech (pronunciation errors,
 
 ### GPU → CPU Fallback
 
-- GPU session limit or quota exhausted → immediate CPU fallback (Discord notification)
-- GPU-related error during execution → automatic CPU retry
-- Non-GPU error → fail (no retry)
+- GPU kernel failure (quota, OOM, CUDA error, etc.) → automatic CPU retry + Discord notification
+- Polling waits for `RUNNING`/`QUEUED` transition before checking completion (stale status防止)
+- `COMPLETE_EMPTY` (no output) is treated as failure, not success
 
 ## Workflows
 
