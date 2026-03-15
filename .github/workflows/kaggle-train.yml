@@ -105,12 +105,28 @@ jobs:
           NB_DIR="${{ inputs.competition_dir }}"
           METADATA="$NB_DIR/kernel-metadata.json"
 
+          # Python-based status check (kaggle CLI 2.0 kernels status returns 403)
+          check_status() {
+            python3 -c "
+          import json, os
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          api = KaggleApi()
+          api.authenticate()
+          try:
+              result = api.kernels_status('$KERNEL_ID')
+              # result may be string or object
+              s = str(result)
+              print(s)
+          except Exception as e:
+              print(f'CHECK_ERROR: {e}')
+          " 2>&1
+          }
+
           wait_for_idle() {
             for i in $(seq 1 20); do
-              RAW=$(kaggle kernels status "$KERNEL_ID" 2>&1) || true
+              RAW=$(check_status)
               echo "Pre-push check $i/20: $RAW"
-              STATUS=$(echo "$RAW" | sed 's/.*has status "\([^"]*\)".*/\1/')
-              if [ -z "$STATUS" ] || echo "$STATUS" | grep -qiE "COMPLETE|ERROR|CANCEL"; then
+              if echo "$RAW" | grep -qiE "COMPLETE|ERROR|CANCEL|CHECK_ERROR"; then
                 return 0
               fi
               echo "Kernel still running, waiting 30s..."
@@ -121,18 +137,20 @@ jobs:
           poll_until_done() {
             # ASR training can take hours — poll for up to 6 hours
             for i in $(seq 1 720); do
-              RAW=$(kaggle kernels status "$KERNEL_ID" 2>&1) || true
-              STATUS=$(echo "$RAW" | sed 's/.*has status "\([^"]*\)".*/\1/')
+              RAW=$(check_status)
               if [ $((i % 10)) -eq 0 ]; then
-                echo "Attempt $i/720: $STATUS"
+                echo "Attempt $i/720: $RAW"
               fi
-              if echo "$STATUS" | grep -qiE "COMPLETE"; then
+              if echo "$RAW" | grep -qiE "COMPLETE"; then
                 echo "Kernel completed successfully."
                 return 0
               fi
-              if echo "$STATUS" | grep -qiE "ERROR|CANCEL"; then
-                echo "Kernel failed: $(kaggle kernels status "$KERNEL_ID" 2>&1 || true)"
+              if echo "$RAW" | grep -qiE "ERROR|CANCEL"; then
+                echo "Kernel failed: $RAW"
                 return 1
+              fi
+              if echo "$RAW" | grep -qiE "CHECK_ERROR"; then
+                echo "Status check error (retrying): $RAW"
               fi
               sleep 30
             done
@@ -149,48 +167,30 @@ jobs:
           PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
           echo "Push output: $PUSH_OUTPUT"
 
-          # Check GPU quota
-          GPU_QUOTA_HIT=false
-          SESSION_LIMIT_HIT=false
-          if echo "$PUSH_OUTPUT" | grep -qiE "session count.*reached"; then
-            SESSION_LIMIT_HIT=true
-            GPU_QUOTA_HIT=true
-          elif echo "$PUSH_OUTPUT" | grep -qiE "quota.*reached|GPU quota"; then
-            GPU_QUOTA_HIT=true
-          fi
+          # Check if push succeeded
+          if ! echo "$PUSH_OUTPUT" | grep -qiE "successfully pushed"; then
+            # Check GPU quota
+            if echo "$PUSH_OUTPUT" | grep -qiE "session count.*reached"; then
+              echo "=== GPU session limit — retrying ==="
+              curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+                -H "Content-Type: application/json" \
+                -d '{"content": "⏳ **GPUセッション上限 → リトライ中**\nKernel: `'"$KERNEL_ID"'`"}' || true
 
-          if [ "$GPU_QUOTA_HIT" = "false" ]; then
-            if poll_until_done; then
-              exit 0
-            fi
-          fi
-
-          # Session limit retry
-          if [ "$SESSION_LIMIT_HIT" = "true" ]; then
-            echo "=== GPU session limit — retrying ==="
-            curl -s -X POST "$DISCORD_WEBHOOK_URL" \
-              -H "Content-Type: application/json" \
-              -d '{"content": "⏳ **GPUセッション上限 → リトライ中**\nKernel: `'"$KERNEL_ID"'`"}' || true
-
-            for retry in $(seq 1 12); do
-              echo "GPU retry $retry/12: waiting 5 minutes..."
-              sleep 300
-              wait_for_idle
-              PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
-              if ! echo "$PUSH_OUTPUT" | grep -qiE "session count.*reached|quota.*reached|GPU quota"; then
-                if poll_until_done; then
-                  exit 0
-                else
-                  exit 1
+              for retry in $(seq 1 12); do
+                echo "GPU retry $retry/12: waiting 5 minutes..."
+                sleep 300
+                wait_for_idle
+                PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
+                echo "Retry push output: $PUSH_OUTPUT"
+                if echo "$PUSH_OUTPUT" | grep -qiE "successfully pushed"; then
+                  break
                 fi
-              fi
-            done
-          fi
-
-          # CPU fallback (ASR on CPU is very slow, but better than nothing)
-          if [ "$ORIG_GPU" = "true" ]; then
-            echo "=== GPU quota exhausted. Falling back to CPU ==="
-            python3 -c "
+              done
+            elif echo "$PUSH_OUTPUT" | grep -qiE "quota.*reached|GPU quota"; then
+              # CPU fallback
+              if [ "$ORIG_GPU" = "true" ]; then
+                echo "=== GPU quota exhausted. Falling back to CPU ==="
+                python3 -c "
           import json
           with open('$METADATA') as f:
               meta = json.load(f)
@@ -198,16 +198,23 @@ jobs:
           with open('$METADATA', 'w') as f:
               json.dump(meta, f, indent=2)
           "
-            curl -s -X POST "$DISCORD_WEBHOOK_URL" \
-              -H "Content-Type: application/json" \
-              -d '{"content": "⚠️ **GPUクォータ切れ → CPUフォールバック**\nKernel: `'"$KERNEL_ID"'`\nASR学習はCPUでは非常に遅くなります。"}' || true
-
-            wait_for_idle
-            kaggle kernels push -p "$NB_DIR"
-            poll_until_done
-          else
-            exit 1
+                curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+                  -H "Content-Type: application/json" \
+                  -d '{"content": "⚠️ **GPUクォータ切れ → CPUフォールバック**\nKernel: `'"$KERNEL_ID"'`"}' || true
+                wait_for_idle
+                kaggle kernels push -p "$NB_DIR"
+              else
+                echo "Push failed: $PUSH_OUTPUT"
+                exit 1
+              fi
+            else
+              echo "Push failed: $PUSH_OUTPUT"
+              exit 1
+            fi
           fi
+
+          echo "=== Polling for completion ==="
+          poll_until_done
 
       - name: Restore GPU setting
         if: always()
