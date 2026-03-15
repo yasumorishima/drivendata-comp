@@ -195,46 +195,23 @@ jobs:
             fi
           fi
 
-          # --- Session limit: wait and retry GPU (other kernels may finish) ---
-          if [ "$SESSION_LIMIT_HIT" = "true" ]; then
-            echo "=== GPU session limit — waiting for other kernels to finish ==="
-            curl -s -X POST "$DISCORD_WEBHOOK_URL" \
-              -H "Content-Type: application/json" \
-              -d '{"content": "⏳ **GPUセッション上限 → 空き待ちリトライ**\nKernel: `'"$KERNEL_ID"'`\n5分間隔で最大2回リトライします。"}' || true
-
-            for retry in $(seq 1 2); do
-              echo "GPU retry $retry/2: waiting 5 minutes..."
-              sleep 300
-              wait_for_idle
-              PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
-              echo "Retry $retry push output: $PUSH_OUTPUT"
-              if ! echo "$PUSH_OUTPUT" | grep -qiE "session count.*reached|quota.*reached|GPU quota"; then
-                echo "GPU push accepted on retry $retry."
-                if poll_until_done; then
-                  echo "Success on GPU retry."
-                  exit 0
-                else
-                  echo "Kernel failed after GPU retry."
-                  break
-                fi
-              fi
-              echo "Still blocked, retrying..."
-            done
-            echo "All 2 GPU retries exhausted. Falling back to CPU."
-          fi
-
-          # --- Check if failure is GPU-quota related ---
+          # --- Check if GPU-related failure → CPU fallback ---
           if [ "$ORIG_GPU" != "true" ]; then
             echo "GPU was not enabled; no fallback to try."
             exit 1
           fi
 
-          # Check push output OR poll failure for quota/duration keywords
-          FAILURE_MSG="${{ env.FAILURE_MSG }}"
-          ALL_MSGS="$PUSH_OUTPUT $FAILURE_MSG"
-          if ! echo "$ALL_MSGS" | grep -qiE "exceeded|quota|accelerator|duration|session count"; then
-            echo "Failure is not GPU-quota related. Not retrying."
-            exit 1
+          # Session limit or quota hit at push → immediate CPU fallback
+          if [ "$GPU_QUOTA_HIT" = "true" ]; then
+            echo "GPU quota/session limit → immediate CPU fallback."
+          else
+            # Poll failure: check if GPU-quota related
+            FAILURE_MSG="${{ env.FAILURE_MSG }}"
+            ALL_MSGS="$PUSH_OUTPUT $FAILURE_MSG"
+            if ! echo "$ALL_MSGS" | grep -qiE "exceeded|quota|accelerator|duration|session count"; then
+              echo "Failure is not GPU-quota related. Not retrying."
+              exit 1
+            fi
           fi
 
           # --- Attempt 2: fallback to CPU ---
