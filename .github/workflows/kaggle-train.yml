@@ -155,6 +155,7 @@ jobs:
               fi
               if echo "$RAW" | grep -qiE "ERROR|CANCEL"; then
                 echo "Kernel failed: $RAW"
+                echo "FAILURE_MSG=$RAW" >> "$GITHUB_ENV"
                 return 1
               fi
               # 403 during startup is transient, keep retrying
@@ -164,63 +165,103 @@ jobs:
             return 1
           }
 
+          # Record original GPU setting for restoration
           ORIG_GPU=$(python3 -c "import json; print(json.load(open('$METADATA')).get('enable_gpu','false'))")
           echo "ORIG_GPU=$ORIG_GPU" >> "$GITHUB_ENV"
+          echo "Original enable_gpu: $ORIG_GPU"
 
-          # Push
+          # --- Attempt 1: push as-is (GPU if configured) ---
           wait_for_idle
-          echo "=== Pushing kernel with enable_gpu=$ORIG_GPU ==="
+          echo "=== Attempt 1: pushing with enable_gpu=$ORIG_GPU ==="
           PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
           echo "Push output: $PUSH_OUTPUT"
 
-          # Check if push succeeded
-          if ! echo "$PUSH_OUTPUT" | grep -qiE "successfully pushed"; then
-            # Check GPU quota
-            if echo "$PUSH_OUTPUT" | grep -qiE "session count.*reached"; then
-              echo "=== GPU session limit — retrying ==="
-              curl -s -X POST "$DISCORD_WEBHOOK_URL" \
-                -H "Content-Type: application/json" \
-                -d '{"content": "⏳ **GPUセッション上限 → リトライ中**\nKernel: `'"$KERNEL_ID"'`"}' || true
+          # Check if push itself was rejected due to GPU quota/session limit
+          GPU_QUOTA_HIT=false
+          SESSION_LIMIT_HIT=false
+          if echo "$PUSH_OUTPUT" | grep -qiE "session count.*reached"; then
+            echo "GPU push rejected: concurrent session limit."
+            SESSION_LIMIT_HIT=true
+            GPU_QUOTA_HIT=true
+          elif echo "$PUSH_OUTPUT" | grep -qiE "quota.*reached|GPU quota"; then
+            echo "GPU push rejected: weekly quota exhausted."
+            GPU_QUOTA_HIT=true
+          fi
 
-              for retry in $(seq 1 12); do
-                echo "GPU retry $retry/12: waiting 5 minutes..."
-                sleep 300
-                wait_for_idle
-                PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
-                echo "Retry push output: $PUSH_OUTPUT"
-                if echo "$PUSH_OUTPUT" | grep -qiE "successfully pushed"; then
+          if [ "$GPU_QUOTA_HIT" = "false" ]; then
+            if poll_until_done; then
+              echo "Success on first attempt."
+              exit 0
+            fi
+          fi
+
+          # --- Session limit: wait and retry GPU (other kernels may finish) ---
+          if [ "$SESSION_LIMIT_HIT" = "true" ]; then
+            echo "=== GPU session limit — waiting for other kernels to finish ==="
+            curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d '{"content": "⏳ **GPUセッション上限 → 空き待ちリトライ**\nKernel: `'"$KERNEL_ID"'`\n5分間隔で最大12回リトライします。"}' || true
+
+            for retry in $(seq 1 12); do
+              echo "GPU retry $retry/12: waiting 5 minutes..."
+              sleep 300
+              wait_for_idle
+              PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
+              echo "Retry $retry push output: $PUSH_OUTPUT"
+              if ! echo "$PUSH_OUTPUT" | grep -qiE "session count.*reached|quota.*reached|GPU quota"; then
+                echo "GPU push accepted on retry $retry."
+                if poll_until_done; then
+                  echo "Success on GPU retry."
+                  exit 0
+                else
+                  echo "Kernel failed after GPU retry."
                   break
                 fi
-              done
-            elif echo "$PUSH_OUTPUT" | grep -qiE "quota.*reached|GPU quota"; then
-              # CPU fallback
-              if [ "$ORIG_GPU" = "true" ]; then
-                echo "=== GPU quota exhausted. Falling back to CPU ==="
-                python3 -c "
+              fi
+              echo "Still blocked, retrying..."
+            done
+            echo "All 12 GPU retries exhausted. Falling back to CPU."
+          fi
+
+          # --- Check if failure is GPU-quota related ---
+          if [ "$ORIG_GPU" != "true" ]; then
+            echo "GPU was not enabled; no fallback to try."
+            exit 1
+          fi
+
+          # Check push output OR poll failure for quota/duration keywords
+          FAILURE_MSG="${{ env.FAILURE_MSG }}"
+          ALL_MSGS="$PUSH_OUTPUT $FAILURE_MSG"
+          if ! echo "$ALL_MSGS" | grep -qiE "exceeded|quota|accelerator|duration|session count"; then
+            echo "Failure is not GPU-quota related. Not retrying."
+            exit 1
+          fi
+
+          # --- Attempt 2: fallback to CPU ---
+          echo "=== GPU quota exhausted. Falling back to CPU... ==="
+          python3 -c "
           import json
           with open('$METADATA') as f:
               meta = json.load(f)
           meta['enable_gpu'] = 'false'
           with open('$METADATA', 'w') as f:
               json.dump(meta, f, indent=2)
+          print('Switched enable_gpu to false')
           "
-                curl -s -X POST "$DISCORD_WEBHOOK_URL" \
-                  -H "Content-Type: application/json" \
-                  -d '{"content": "⚠️ **GPUクォータ切れ → CPUフォールバック**\nKernel: `'"$KERNEL_ID"'`"}' || true
-                wait_for_idle
-                kaggle kernels push -p "$NB_DIR"
-              else
-                echo "Push failed: $PUSH_OUTPUT"
-                exit 1
-              fi
-            else
-              echo "Push failed: $PUSH_OUTPUT"
-              exit 1
-            fi
-          fi
 
-          echo "=== Polling for completion ==="
-          poll_until_done
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d '{"content": "⚠️ **GPUクォータ切れ → CPUフォールバック**\nKernel: `'"$KERNEL_ID"'`\nCPUで再実行します。ASR学習はCPUでは非常に遅くなります。"}' || true
+
+          wait_for_idle
+          kaggle kernels push -p "$NB_DIR"
+
+          if poll_until_done; then
+            echo "Success on CPU fallback."
+          else
+            echo "CPU fallback also failed."
+            exit 1
+          fi
 
       - name: Restore GPU setting
         if: always()
