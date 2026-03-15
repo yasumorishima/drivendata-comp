@@ -200,10 +200,10 @@ jobs:
             echo "=== GPU session limit — waiting for other kernels to finish ==="
             curl -s -X POST "$DISCORD_WEBHOOK_URL" \
               -H "Content-Type: application/json" \
-              -d '{"content": "⏳ **GPUセッション上限 → 空き待ちリトライ**\nKernel: `'"$KERNEL_ID"'`\n5分間隔で最大12回リトライします。"}' || true
+              -d '{"content": "⏳ **GPUセッション上限 → 空き待ちリトライ**\nKernel: `'"$KERNEL_ID"'`\n5分間隔で最大2回リトライします。"}' || true
 
-            for retry in $(seq 1 12); do
-              echo "GPU retry $retry/12: waiting 5 minutes..."
+            for retry in $(seq 1 2); do
+              echo "GPU retry $retry/2: waiting 5 minutes..."
               sleep 300
               wait_for_idle
               PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
@@ -220,7 +220,7 @@ jobs:
               fi
               echo "Still blocked, retrying..."
             done
-            echo "All 12 GPU retries exhausted. Falling back to CPU."
+            echo "All 2 GPU retries exhausted. Falling back to CPU."
           fi
 
           # --- Check if failure is GPU-quota related ---
