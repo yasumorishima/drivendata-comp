@@ -105,52 +105,49 @@ jobs:
           NB_DIR="${{ inputs.competition_dir }}"
           METADATA="$NB_DIR/kernel-metadata.json"
 
-          # Python-based status check (kaggle CLI 2.0 kernels status returns 403)
-          check_status() {
+          # Poll via kernels_output: if output is downloadable, kernel is done
+          # kernels_status API returns 403 in Kaggle SDK 2.0
+          check_done() {
             python3 -c "
-          import json, os
+          import os, sys
           from kaggle.api.kaggle_api_extended import KaggleApi
           api = KaggleApi()
           api.authenticate()
           try:
-              result = api.kernels_status('$KERNEL_ID')
-              # result may be string or object
-              s = str(result)
-              print(s)
+              os.makedirs('/tmp/kcheck', exist_ok=True)
+              api.kernels_output('$KERNEL_ID', path='/tmp/kcheck', force=True)
+              files = os.listdir('/tmp/kcheck')
+              if files:
+                  print('COMPLETE')
+              else:
+                  print('COMPLETE_EMPTY')
           except Exception as e:
-              print(f'CHECK_ERROR: {e}')
+              msg = str(e)
+              if '404' in msg or 'not found' in msg.lower():
+                  print('RUNNING')
+              elif '403' in msg:
+                  print('RUNNING_OR_AUTH_ERROR')
+              else:
+                  print(f'CHECK_ERROR: {msg}')
           " 2>&1
           }
 
           wait_for_idle() {
-            for i in $(seq 1 20); do
-              RAW=$(check_status)
-              echo "Pre-push check $i/20: $RAW"
-              if echo "$RAW" | grep -qiE "COMPLETE|ERROR|CANCEL|CHECK_ERROR"; then
-                return 0
-              fi
-              echo "Kernel still running, waiting 30s..."
-              sleep 30
-            done
+            # New kernel: just wait a moment for Kaggle to register the push
+            echo "Waiting 30s for Kaggle to register kernel..."
+            sleep 30
           }
 
           poll_until_done() {
             # ASR training can take hours — poll for up to 6 hours
             for i in $(seq 1 720); do
-              RAW=$(check_status)
-              if [ $((i % 10)) -eq 0 ]; then
+              RAW=$(check_done)
+              if [ $((i % 10)) -eq 0 ] || echo "$RAW" | grep -qiE "COMPLETE"; then
                 echo "Attempt $i/720: $RAW"
               fi
-              if echo "$RAW" | grep -qiE "COMPLETE"; then
-                echo "Kernel completed successfully."
+              if echo "$RAW" | grep -qiE "^COMPLETE"; then
+                echo "Kernel completed."
                 return 0
-              fi
-              if echo "$RAW" | grep -qiE "ERROR|CANCEL"; then
-                echo "Kernel failed: $RAW"
-                return 1
-              fi
-              if echo "$RAW" | grep -qiE "CHECK_ERROR"; then
-                echo "Status check error (retrying): $RAW"
               fi
               sleep 30
             done

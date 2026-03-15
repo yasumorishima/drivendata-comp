@@ -119,12 +119,21 @@ print(f"\\nTotal transcripts: {len(transcripts)}")
 print(f"Sample: {transcripts[0]}")
 """)
 
-add_code(f"""# Clone repo for train.py
-!git clone https://github.com/{GH_REPO}.git repo
+# Embed train.py inline via base64 (no git clone dependency)
+import base64
+train_py_path = os.path.join(os.path.dirname(__file__) or ".", "train.py")
+with open(train_py_path, "rb") as f:
+    train_b64 = base64.b64encode(f.read()).decode()
+
+add_code(f"""# Write train.py from embedded base64
+import base64, pathlib
+train_b64 = "{train_b64}"
+pathlib.Path("train.py").write_bytes(base64.b64decode(train_b64))
+print(f"train.py written ({{pathlib.Path('train.py').stat().st_size}} bytes)")
 """)
 
 add_code(f"""# Train
-!python repo/pasketti-phonetic/train.py \\
+!python train.py \\
     --data_dir data/phonetic \\
     --output_dir /kaggle/working/model_phonetic \\
     --model_name {MODEL_NAME} \\
