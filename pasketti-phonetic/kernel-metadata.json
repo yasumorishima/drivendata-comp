@@ -1,5 +1,5 @@
 {
-  "id": "yasunorim/drivendata-phonetic-train",
+  "id": "yasunorim/drivendata-phonetic-track-training",
   "title": "DrivenData Phonetic Track Training",
   "code_file": "train_kaggle.ipynb",
   "language": "python",
