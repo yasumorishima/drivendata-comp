@@ -39,7 +39,7 @@ jobs:
   train:
     name: Train on Kaggle GPU
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
 
     steps:
       - uses: actions/checkout@v4
@@ -143,22 +143,50 @@ jobs:
             echo "Waiting 120s for Kaggle to initialize kernel..."
             sleep 120
 
+            # After push, status may still show old result (ERROR/COMPLETE_EMPTY).
+            # Wait for status to transition to RUNNING/QUEUED first, then poll for completion.
+            echo "Waiting for kernel to start (status != old stale result)..."
+            STARTED=false
+            for i in $(seq 1 60); do
+              RAW=$(check_status)
+              if [ $((i % 5)) -eq 0 ]; then
+                echo "Startup check $i/60: $RAW"
+              fi
+              if echo "$RAW" | grep -qiE "RUNNING|QUEUED"; then
+                echo "Kernel is now running: $RAW"
+                STARTED=true
+                break
+              fi
+              # If status changed to COMPLETE (not EMPTY/ERROR), training finished fast
+              if echo "$RAW" | grep -q "^COMPLETE$"; then
+                echo "Kernel completed successfully."
+                return 0
+              fi
+              sleep 30
+            done
+
+            if [ "$STARTED" = "false" ]; then
+              echo "Kernel never started (stuck at stale status). Last: $RAW"
+              echo "FAILURE_MSG=Kernel never started after push" >> "$GITHUB_ENV"
+              return 1
+            fi
+
             # ASR training can take hours — poll for up to 6 hours
             for i in $(seq 1 720); do
               RAW=$(check_status)
               if [ $((i % 10)) -eq 0 ]; then
                 echo "Attempt $i/720: $RAW"
               fi
-              if echo "$RAW" | grep -qiE "COMPLETE"; then
-                echo "Kernel completed successfully."
-                return 0
-              fi
-              if echo "$RAW" | grep -qiE "ERROR|CANCEL"; then
+              # COMPLETE_EMPTY = kernel finished with no output (error)
+              if echo "$RAW" | grep -qiE "COMPLETE_EMPTY|ERROR|CANCEL"; then
                 echo "Kernel failed: $RAW"
                 echo "FAILURE_MSG=$RAW" >> "$GITHUB_ENV"
                 return 1
               fi
-              # 403 during startup is transient, keep retrying
+              if echo "$RAW" | grep -qiE "COMPLETE"; then
+                echo "Kernel completed successfully."
+                return 0
+              fi
               sleep 30
             done
             echo "Timeout: kernel did not complete in 6 hours."
@@ -201,21 +229,17 @@ jobs:
             exit 1
           fi
 
-          # Session limit or quota hit at push → immediate CPU fallback
+          # GPU was enabled and kernel failed → always try CPU fallback.
+          # Could be GPU quota, OOM, CUDA error, or unknown — CPU retry is cheap.
           if [ "$GPU_QUOTA_HIT" = "true" ]; then
-            echo "GPU quota/session limit → immediate CPU fallback."
+            echo "GPU quota/session limit → CPU fallback."
           else
-            # Poll failure: check if GPU-quota related
-            FAILURE_MSG="${{ env.FAILURE_MSG }}"
-            ALL_MSGS="$PUSH_OUTPUT $FAILURE_MSG"
-            if ! echo "$ALL_MSGS" | grep -qiE "exceeded|quota|accelerator|duration|session count"; then
-              echo "Failure is not GPU-quota related. Not retrying."
-              exit 1
-            fi
+            FAILURE_MSG="${FAILURE_MSG:-unknown}"
+            echo "GPU kernel failed ($FAILURE_MSG) → CPU fallback."
           fi
 
           # --- Attempt 2: fallback to CPU ---
-          echo "=== GPU quota exhausted. Falling back to CPU... ==="
+          echo "=== Falling back to CPU... ==="
           python3 -c "
           import json
           with open('$METADATA') as f:
@@ -228,7 +252,7 @@ jobs:
 
           curl -s -X POST "$DISCORD_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
-            -d '{"content": "⚠️ **GPUクォータ切れ → CPUフォールバック**\nKernel: `'"$KERNEL_ID"'`\nCPUで再実行します。ASR学習はCPUでは非常に遅くなります。"}' || true
+            -d '{"content": "⚠️ **GPU失敗 → CPUフォールバック**\nKernel: `'"$KERNEL_ID"'`\n理由: '"${FAILURE_MSG:-unknown}"'\nCPUで再実行します。"}' || true
 
           wait_for_idle
           kaggle kernels push -p "$NB_DIR"
