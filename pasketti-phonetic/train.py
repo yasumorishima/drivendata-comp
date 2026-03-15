@@ -114,12 +114,12 @@ def prepare_dataset(
     skipped = 0
 
     for i, rec in enumerate(transcripts):
-        audio_path = data_dir / rec["audio_filepath"]
+        audio_path = data_dir / rec["audio_path"]
         if not audio_path.exists():
             skipped += 1
             continue
 
-        duration = rec.get("duration", 0)
+        duration = rec.get("audio_duration_sec", 0)
         if duration > max_duration:
             skipped += 1
             continue
@@ -141,7 +141,7 @@ def prepare_dataset(
             "audio_path": str(audio_path),
             "text": text,
             "duration": duration,
-            "utterance_id": rec.get("utterance_id", f"U_{i}"),
+            "utterance_id": rec.get("utterance_id", f"U_{i:06d}"),
         })
 
     print(f"Prepared {len(dataset)} samples, skipped {skipped}")

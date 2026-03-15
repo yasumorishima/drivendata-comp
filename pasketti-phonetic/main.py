@@ -69,7 +69,7 @@ def main():
         speeches = []
         utterance_ids = []
         for rec in batch:
-            audio_path = DATA_DIR / rec["audio_filepath"]
+            audio_path = DATA_DIR / rec["audio_path"]
             speech, sr = sf.read(str(audio_path))
             if sr != SAMPLE_RATE:
                 speech = librosa.resample(speech, orig_sr=sr, target_sr=SAMPLE_RATE)
