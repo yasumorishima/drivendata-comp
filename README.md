@@ -1,22 +1,69 @@
 # drivendata-comp
 
-DrivenData competition pipeline — automated training, packaging, and submission via GitHub Actions + Kaggle GPU.
+[DrivenData](https://www.drivendata.org/) competition pipeline — automated training, packaging, and submission via GitHub Actions + Kaggle GPU.
+
+---
+
+## Current Competition: On Top of Pasketti
+
+**Children's Speech Recognition Challenge** — $120,000 prize pool, deadline 2026-04-06
+
+Children's speech differs significantly from adult speech (pronunciation errors, disfluencies, unique vocabulary). This competition aims to build robust ASR models that work well on children's audio.
+
+| | Phonetic Track ($50K) | Word Track ($70K) |
+|---|---|---|
+| Task | IPA phonetic transcription | Word-level transcription |
+| Metric | CER (Character Error Rate) | WER (Word Error Rate) |
+| Benchmark | Wav2Vec2 (HuggingFace) | Parakeet TDT 0.6B (NeMo) |
+| Benchmark Score | CER 0.33 | WER 0.164 |
+| Data | 1.4 GB audio | 17.3 GB audio + noise |
+| Submission | Code (ZIP, Docker, GPU) | Code (ZIP, Docker, GPU) |
+
+### Approach
+
+**Phonetic Track (in progress)**
+- Base model: `facebook/wav2vec2-base` with CTC head
+- IPA vocabulary built from training transcripts (100+ IPA characters)
+- SpecAugment + cosine LR decay + gradient accumulation
+- Training on Kaggle P100 GPU
+
+**Word Track (planned)**
+- Base model: NVIDIA Parakeet TDT 0.6B
+- Noise augmentation using provided classroom noise samples
 
 ---
 
 ## Pipeline Overview
 
 ```
-1. Download Competition Data  →  Artifact (Playwright auto-DL)
-2. GPU Train (Kaggle P100)    →  Model weights → GitHub Release
-3. Package Submission          →  main.py + model → submission.zip
-4. Manual submit on DrivenData
+┌─────────────────────────┐
+│ 1. Download Data        │  GitHub Actions + Playwright
+│    → Artifact           │  (auto-login, auto-download)
+└──────────┬──────────────┘
+           ▼
+┌─────────────────────────┐
+│ 2. GPU Train            │  Kaggle P100 GPU
+│    train.py (base64)    │  (GPU→CPU auto-fallback)
+│    → model weights      │
+│    → GitHub Release     │
+└──────────┬──────────────┘
+           ▼
+┌─────────────────────────┐
+│ 3. Package Submission   │  GitHub Actions
+│    main.py + model/     │  → submission.zip
+│    → Artifact           │
+└──────────┬──────────────┘
+           ▼
+┌─────────────────────────┐
+│ 4. Manual Submit        │  Upload ZIP on DrivenData
+└─────────────────────────┘
 ```
 
 ### GPU → CPU Fallback
 
-GPU session limit or quota exhausted → immediate CPU fallback (Discord notification).
-GPU-related error during execution → automatic CPU retry.
+- GPU session limit or quota exhausted → immediate CPU fallback (Discord notification)
+- GPU-related error during execution → automatic CPU retry
+- Non-GPU error → fail (no retry)
 
 ## Workflows
 
@@ -51,36 +98,41 @@ gh workflow run "Package DrivenData Submission" \
   -f memo="v1: baseline submission"
 ```
 
-## Active Competitions
+## Tech Stack
 
-| Competition | Track | Metric | Deadline |
-|---|---|---|---|
-| [On Top of Pasketti](https://www.drivendata.org/competitions/309/) | Phonetic (IPA CER) | CER | 2026-04-06 |
-| [On Top of Pasketti](https://www.drivendata.org/competitions/308/) | Word (WER) | WER | 2026-04-06 |
+| Component | Technology |
+|---|---|
+| Training | PyTorch + HuggingFace Transformers |
+| ASR Model | Wav2Vec2 (CTC) / Parakeet TDT (planned) |
+| GPU | Kaggle P100 (free tier) |
+| CI/CD | GitHub Actions |
+| Experiment Tracking | W&B (offline sync from Kaggle) |
+| Notifications | Discord Webhook |
+| Data Download | Playwright (headless browser) |
 
 ## Project Structure
 
 ```
 drivendata-comp/
-├── .github/workflows/     # GitHub Actions pipelines
-├── template/              # CSV submission template
-├── gpu-template/          # Code submission template (GPU)
-├── pasketti-phonetic/     # Phonetic Track: Wav2Vec2 CTC
-│   ├── train.py           # Training script (runs on Kaggle GPU)
-│   ├── main.py            # Inference script (DrivenData runtime)
+├── .github/workflows/        # GitHub Actions pipelines
+├── template/                 # CSV submission template
+├── gpu-template/             # Code submission template (GPU)
+├── pasketti-phonetic/        # Phonetic Track: Wav2Vec2 CTC
+│   ├── train.py              # Training script (runs on Kaggle GPU)
+│   ├── main.py               # Inference script (DrivenData runtime)
 │   ├── generate_notebook.py  # Embeds train.py into Kaggle notebook
 │   └── kernel-metadata.json
-├── pasketti-word/         # Word Track (TBD)
-├── scripts/               # Utility scripts
-└── DRIVENDATA_MEMO.md     # Internal operation notes
+├── pasketti-word/            # Word Track (TBD)
+├── scripts/                  # Utility scripts
+└── DRIVENDATA_MEMO.md        # Internal operation notes
 ```
 
 ## Roadmap
 
-- [ ] Phonetic v1 結果確認 → 全自動パイプラインテスト（Push → Poll → Release）
-- [ ] Package Submission → DrivenData初回提出（CERスコア確認）
-- [ ] Phonetic改善: wav2vec2-large-xlsr-53, data augmentation, LM decode
-- [ ] Word Track着手（Parakeet TDT 0.6B, 17.3GB audio data）
+- [ ] Phonetic v1 results → end-to-end pipeline test (Push → Poll → Release)
+- [ ] Package Submission → first DrivenData submission (CER score)
+- [ ] Phonetic improvements: wav2vec2-large-xlsr-53, data augmentation, LM decode
+- [ ] Word Track: Parakeet TDT 0.6B (17.3GB audio data)
 
 ## Profile
 
