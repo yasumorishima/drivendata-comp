@@ -75,6 +75,13 @@ drivendata-comp/
 └── DRIVENDATA_MEMO.md     # Internal operation notes
 ```
 
+## Roadmap
+
+- [ ] Phonetic v1 結果確認 → 全自動パイプラインテスト（Push → Poll → Release）
+- [ ] Package Submission → DrivenData初回提出（CERスコア確認）
+- [ ] Phonetic改善: wav2vec2-large-xlsr-53, data augmentation, LM decode
+- [ ] Word Track着手（Parakeet TDT 0.6B, 17.3GB audio data）
+
 ## Profile
 
 - DrivenData: [Ymori](https://www.drivendata.org/users/Ymori/)
