@@ -87,15 +87,15 @@ gh workflow run "Download Competition Data" \
 gh workflow run "DrivenData GPU Train (Kaggle)" \
   --repo yasumorishima/drivendata-comp \
   -f competition_dir=pasketti-phonetic \
-  -f model_release_tag=phonetic-model-v1 \
-  -f memo="v1: wav2vec2-base baseline"
+  -f model_release_tag=phonetic-model-v2 \
+  -f memo="v2: wav2vec2-base baseline"
 
 # 3. Package for submission
 gh workflow run "Package DrivenData Submission" \
   --repo yasumorishima/drivendata-comp \
   -f competition_dir=pasketti-phonetic \
-  -f model_release_tag=phonetic-model-v1 \
-  -f memo="v1: baseline submission"
+  -f model_release_tag=phonetic-model-v2 \
+  -f memo="v2: baseline submission"
 ```
 
 ## Tech Stack
@@ -129,7 +129,8 @@ drivendata-comp/
 
 ## Roadmap
 
-- [ ] Phonetic v1 results → end-to-end pipeline test (Push → Poll → Release)
+- [x] Pipeline: Download → Kaggle GPU Train → Release (GPU→CPU fallback)
+- [ ] Phonetic v2 training (CPU fallback, wav2vec2-base CTC baseline)
 - [ ] Package Submission → first DrivenData submission (CER score)
 - [ ] Phonetic improvements: wav2vec2-large-xlsr-53, data augmentation, LM decode
 - [ ] Word Track: Parakeet TDT 0.6B (17.3GB audio data)
