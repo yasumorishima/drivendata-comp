@@ -127,6 +127,42 @@ drivendata-comp/
 └── DRIVENDATA_MEMO.md        # Internal operation notes
 ```
 
+## Experiment Management (EXP + child-exp)
+
+Fast iteration via Google Colab + Google Drive + RPi5 keepalive. Same methodology as [kaggle-competitions](https://github.com/yasumorishima/kaggle-competitions#-experiment-management-exp--child-exp).
+
+```
+[Local PC]                  [RPi5]                     [Google Colab (Free)]
+Claude Code                 Chromium + wtype keepalive  File Monitor Notebook
+  ↓ Write config/code        ↓ Session keepalive         ↓ Auto-run train.py
+  ↓                          ↓ 30min heartbeat           ↓
+Google Drive (for Desktop) ←――――――――――――――――――→ Google Drive (mount)
+  EXP/config/child-exp005.yaml                          Detect new config → execute
+  EXP/output/child-exp005/result.json                   Save results to Drive
+```
+
+### Drive Structure
+
+```
+G:/マイドライブ/kaggle/pasketti/
+├── EXP_SUMMARY.md              # Experiment history
+├── CLAUDE_COMP.md              # Competition-specific AI guardrails
+├── setup_data.md               # Data download instructions
+└── EXP/EXP001/
+    ├── train.py                # Wav2Vec2 CTC (YAML config support)
+    ├── config/
+    │   ├── child-exp000.yaml   # wav2vec2-base baseline
+    │   └── child-exp001.yaml   # wav2vec2-large-xlsr-53
+    └── output/
+```
+
+### Two Pipelines
+
+| Pipeline | Purpose | When to use |
+|---|---|---|
+| **EXP + child-exp (Colab)** | Fast experiment iteration | Development: try ideas, tune params |
+| **GitHub Actions (Kaggle GPU)** | Final model training + submission packaging | Best config confirmed → full train → submit |
+
 ## Roadmap
 
 - [x] Pipeline: Download → Kaggle GPU Train → Release (GPU→CPU fallback)
