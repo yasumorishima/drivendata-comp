@@ -76,6 +76,7 @@ jobs:
         id: upload
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_KEY_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY_B64 }}
           DRIVE_SHARED_FOLDER_ID: ${{ secrets.DRIVE_SHARED_FOLDER_ID }}
         run: |
           python3 - <<'PYEOF'
@@ -107,6 +108,7 @@ jobs:
       - name: Upload train.py and trigger config
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_KEY_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY_B64 }}
           DRIVE_SHARED_FOLDER_ID: ${{ secrets.DRIVE_SHARED_FOLDER_ID }}
           GH_PAT: ${{ secrets.GH_PAT }}
           WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
@@ -180,6 +182,7 @@ jobs:
         id: poll
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_KEY_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY_B64 }}
         run: |
           RUN_FOLDER_ID="${{ steps.upload.outputs.run_folder_id }}"
 
@@ -228,6 +231,7 @@ jobs:
       - name: Download model from Drive
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_KEY_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY_B64 }}
         run: |
           RUN_FOLDER_ID="${{ steps.upload.outputs.run_folder_id }}"
 
@@ -254,6 +258,7 @@ jobs:
       - name: Download W&B offline runs from Drive
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_KEY_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY_B64 }}
         run: |
           RUN_FOLDER_ID="${{ steps.upload.outputs.run_folder_id }}"
 
