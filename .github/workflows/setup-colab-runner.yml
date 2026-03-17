@@ -24,15 +24,28 @@ jobs:
       - name: Install dependencies
         run: pip install google-api-python-client google-auth
 
+      - name: Debug secret availability
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_KEY_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY_B64 }}
+        run: |
+          echo "GOOGLE_SERVICE_ACCOUNT_KEY length: ${#GOOGLE_SERVICE_ACCOUNT_KEY}"
+          echo "GOOGLE_SERVICE_ACCOUNT_KEY_B64 length: ${#GOOGLE_SERVICE_ACCOUNT_KEY_B64}"
+          if [ -n "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            echo "KEY starts with: $(echo "$GOOGLE_SERVICE_ACCOUNT_KEY" | head -c 5)"
+          fi
+
       - name: Upload notebook to Drive
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_KEY_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY_B64 }}
           DRIVE_SHARED_FOLDER_ID: ${{ secrets.DRIVE_SHARED_FOLDER_ID }}
         run: python scripts/upload_colab_notebook.py
 
       - name: Create experiments folder
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_KEY_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY_B64 }}
           DRIVE_SHARED_FOLDER_ID: ${{ secrets.DRIVE_SHARED_FOLDER_ID }}
         run: |
           python3 - <<'PYEOF'

@@ -19,10 +19,31 @@ SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 
 def get_drive_service():
-    """Create Drive API service from Service Account credentials."""
-    key_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY", "")
+    """Create Drive API service from Service Account credentials.
+
+    Accepts GOOGLE_SERVICE_ACCOUNT_KEY as either raw JSON or base64-encoded JSON.
+    Also supports GOOGLE_SERVICE_ACCOUNT_KEY_B64 (always base64).
+    """
+    import base64
+
+    key_b64 = os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY_B64", "")
+    key_raw = os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY", "")
+
+    key_json = ""
+    if key_b64:
+        key_json = base64.b64decode(key_b64).decode("utf-8")
+    elif key_raw:
+        # Try raw JSON first, fallback to base64 decode
+        if key_raw.strip().startswith("{"):
+            key_json = key_raw
+        else:
+            try:
+                key_json = base64.b64decode(key_raw).decode("utf-8")
+            except Exception:
+                key_json = key_raw
+
     if not key_json:
-        print("ERROR: GOOGLE_SERVICE_ACCOUNT_KEY not set")
+        print("ERROR: GOOGLE_SERVICE_ACCOUNT_KEY or GOOGLE_SERVICE_ACCOUNT_KEY_B64 not set")
         sys.exit(1)
 
     creds = Credentials.from_service_account_info(
