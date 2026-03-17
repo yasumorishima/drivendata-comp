@@ -1,0 +1,345 @@
+name: DrivenData GPU Train (Colab)
+
+on:
+  workflow_dispatch:
+    inputs:
+      competition_dir:
+        description: "Competition directory (e.g. pasketti-phonetic)"
+        required: true
+        type: string
+      model_release_tag:
+        description: "GitHub Release tag for model (e.g. phonetic-model-v3)"
+        required: true
+        type: string
+      memo:
+        description: "Experiment description (required)"
+        required: true
+        type: string
+      model_name:
+        description: "Base model (default: from config)"
+        required: false
+        type: string
+      epochs:
+        description: "Training epochs"
+        required: false
+        type: string
+        default: "20"
+      batch_size:
+        description: "Per-device batch size"
+        required: false
+        type: string
+        default: "8"
+      learning_rate:
+        description: "Learning rate"
+        required: false
+        type: string
+        default: "5e-5"
+      gradient_accumulation:
+        description: "Gradient accumulation steps"
+        required: false
+        type: string
+        default: "4"
+
+jobs:
+  trigger-and-poll:
+    name: Trigger Colab Training & Poll Results
+    runs-on: ubuntu-latest
+    timeout-minutes: 420
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install google-api-python-client google-auth
+
+      - name: Read competition config
+        id: config
+        run: |
+          CONFIG="${{ inputs.competition_dir }}/drivendata-config.json"
+          BASE_MODEL=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('base_model','facebook/wav2vec2-base'))")
+          ARTIFACT_NAME=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('artifact_name',''))")
+
+          MODEL_NAME="${{ inputs.model_name }}"
+          if [ -z "$MODEL_NAME" ]; then
+            MODEL_NAME="$BASE_MODEL"
+          fi
+
+          echo "model_name=$MODEL_NAME" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+          echo "Config: model=$MODEL_NAME artifact=$ARTIFACT_NAME"
+
+      - name: Create experiment folder & upload trigger
+        id: upload
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          DRIVE_SHARED_FOLDER_ID: ${{ secrets.DRIVE_SHARED_FOLDER_ID }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, sys
+          sys.path.insert(0, "scripts")
+          from drive_helper import get_drive_service, find_or_create_folder, upload_file, upload_content
+
+          service = get_drive_service()
+          root_id = os.environ["DRIVE_SHARED_FOLDER_ID"]
+
+          # Create folder structure: drivendata-pasketti/experiments/<experiment_id>/
+          comp_folder_id = find_or_create_folder(service, "drivendata-pasketti", root_id)
+          exp_folder_id = find_or_create_folder(service, "experiments", comp_folder_id)
+
+          run_id = os.environ.get("GITHUB_RUN_ID", "local")
+          exp_name = f"run-{run_id}"
+          run_folder_id = find_or_create_folder(service, exp_name, exp_folder_id)
+
+          print(f"Experiment folder: drivendata-pasketti/experiments/{exp_name}")
+          print(f"Folder ID: {run_folder_id}")
+
+          # Write folder ID for later steps
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"run_folder_id={run_folder_id}\n")
+              f.write(f"exp_name={exp_name}\n")
+
+          PYEOF
+
+      - name: Upload train.py and trigger config
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          DRIVE_SHARED_FOLDER_ID: ${{ secrets.DRIVE_SHARED_FOLDER_ID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+        run: |
+          RUN_FOLDER_ID="${{ steps.upload.outputs.run_folder_id }}"
+
+          python3 - <<PYEOF
+          import json, os, sys
+          sys.path.insert(0, "scripts")
+          from drive_helper import get_drive_service, upload_file, upload_content
+
+          service = get_drive_service()
+          folder_id = "$RUN_FOLDER_ID"
+
+          # Upload train.py
+          upload_file(service, "${{ inputs.competition_dir }}/train.py", folder_id, "train.py")
+
+          # Upload colab_data_download.py
+          upload_file(service, "scripts/colab_data_download.py", folder_id, "colab_data_download.py")
+
+          # Upload requirements
+          upload_file(
+              service,
+              "${{ inputs.competition_dir }}/requirements-train.txt",
+              folder_id,
+              "requirements-train.txt",
+          )
+
+          # Create trigger config with all parameters
+          trigger = {
+              "status": "pending",
+              "competition_dir": "${{ inputs.competition_dir }}",
+              "memo": "${{ inputs.memo }}",
+              "model_release_tag": "${{ inputs.model_release_tag }}",
+              "github_run_id": "${{ github.run_id }}",
+              "github_repo": "${{ github.repository }}",
+              "train_args": {
+                  "data_dir": "data/phonetic",
+                  "output_dir": "model_output",
+                  "model_name": "${{ steps.config.outputs.model_name }}",
+                  "epochs": int("${{ inputs.epochs }}"),
+                  "batch_size": int("${{ inputs.batch_size }}"),
+                  "gradient_accumulation": int("${{ inputs.gradient_accumulation }}"),
+                  "lr": float("${{ inputs.learning_rate }}"),
+                  "memo": "${{ inputs.memo }}",
+                  "wandb_project": "drivendata-phonetic-asr",
+              },
+              "data": {
+                  "source": "github-artifact",
+                  "artifact_name": "${{ steps.config.outputs.artifact_name }}",
+                  "repo": "${{ github.repository }}",
+                  "gh_pat": os.environ["GH_PAT"],
+              },
+              "wandb_api_key": os.environ["WANDB_API_KEY"],
+          }
+
+          upload_content(service, json.dumps(trigger, indent=2), folder_id, "trigger.json")
+          print("Trigger uploaded. Waiting for Colab to pick it up...")
+
+          PYEOF
+
+      - name: Notify Discord (triggered)
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"🚀 **Colab GPU学習トリガー送信**\nDir: \`${{ inputs.competition_dir }}\`\nModel: \`${{ steps.config.outputs.model_name }}\`\nEpochs: ${{ inputs.epochs }} | BS: ${{ inputs.batch_size }} | LR: ${{ inputs.learning_rate }}\nMemo: ${{ inputs.memo }}\n\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
+
+      - name: Poll for result
+        id: poll
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+        run: |
+          RUN_FOLDER_ID="${{ steps.upload.outputs.run_folder_id }}"
+
+          python3 - <<PYEOF
+          import json, os, sys
+          sys.path.insert(0, "scripts")
+          from drive_helper import get_drive_service, poll_for_result, find_file
+
+          service = get_drive_service()
+          folder_id = "$RUN_FOLDER_ID"
+
+          # Poll for result.json (max 6 hours, check every 2 minutes)
+          result = poll_for_result(
+              service, folder_id,
+              filename="result.json",
+              timeout_minutes=360,
+              poll_interval_sec=120,
+          )
+
+          if result is None:
+              print("ERROR: Training timed out (6 hours)")
+              sys.exit(1)
+
+          print(f"Result: {json.dumps(result, indent=2)}")
+
+          status = result.get("status", "unknown")
+          if status != "success":
+              error_msg = result.get("error", "unknown error")
+              print(f"Training failed: {error_msg}")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write(f"status=failed\n")
+                  f.write(f"error={error_msg}\n")
+              sys.exit(1)
+
+          # Extract metrics
+          metrics = result.get("metrics", {})
+          cer = metrics.get("eval_cer", "N/A")
+          print(f"CER: {cer}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"status=success\n")
+              f.write(f"cer={cer}\n")
+
+          PYEOF
+
+      - name: Download model from Drive
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+        run: |
+          RUN_FOLDER_ID="${{ steps.upload.outputs.run_folder_id }}"
+
+          python3 - <<PYEOF
+          import sys
+          sys.path.insert(0, "scripts")
+          from drive_helper import get_drive_service, find_file, download_file
+
+          service = get_drive_service()
+          folder_id = "$RUN_FOLDER_ID"
+
+          model_file = find_file(service, "model.tar.gz", folder_id)
+          if not model_file:
+              print("ERROR: model.tar.gz not found on Drive")
+              sys.exit(1)
+
+          download_file(service, model_file["id"], "model.tar.gz")
+          print(f"Model size: {int(model_file.get('size', 0)) / 1024 / 1024:.1f} MB")
+
+          PYEOF
+
+          ls -lh model.tar.gz
+
+      - name: Download W&B offline runs from Drive
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+        run: |
+          RUN_FOLDER_ID="${{ steps.upload.outputs.run_folder_id }}"
+
+          python3 - <<PYEOF
+          import sys
+          sys.path.insert(0, "scripts")
+          from drive_helper import get_drive_service, list_files, download_file
+
+          service = get_drive_service()
+          folder_id = "$RUN_FOLDER_ID"
+
+          # Look for wandb offline run tar
+          wandb_file = None
+          for f in list_files(service, folder_id):
+              if f["name"].startswith("wandb-offline-") and f["name"].endswith(".tar.gz"):
+                  wandb_file = f
+                  break
+
+          if wandb_file:
+              download_file(service, wandb_file["id"], f"wandb/{wandb_file['name']}")
+              print(f"Downloaded W&B run: {wandb_file['name']}")
+          else:
+              print("No W&B offline runs found on Drive")
+
+          PYEOF
+
+      - name: Create GitHub Release with model
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ inputs.model_release_tag }}"
+          SIZE=$(du -h model.tar.gz | cut -f1)
+          CER="${{ steps.poll.outputs.cer }}"
+
+          # Delete existing release if any
+          gh release delete "$TAG" --yes 2>/dev/null || true
+
+          gh release create "$TAG" model.tar.gz \
+            --title "$TAG" \
+            --notes "$(cat <<NOTES
+          **${{ inputs.memo }}**
+
+          - Competition: ${{ inputs.competition_dir }}
+          - Model: ${{ steps.config.outputs.model_name }}
+          - Epochs: ${{ inputs.epochs }} | BS: ${{ inputs.batch_size }} | LR: ${{ inputs.learning_rate }}
+          - CER: ${CER}
+          - Size: ${SIZE}
+          - Training: Colab GPU (T4)
+          - Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NOTES
+          )"
+
+          echo "Release created: $TAG"
+
+      - name: Sync W&B offline runs
+        if: always()
+        env:
+          WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+        run: |
+          pip install wandb
+          WANDB_DIRS=$(find ./wandb -type d -name "offline-run-*" 2>/dev/null)
+          if [ -z "$WANDB_DIRS" ]; then
+            echo "No W&B offline runs to sync."
+          else
+            for dir in $WANDB_DIRS; do
+              echo "Syncing: $dir"
+              wandb sync "$dir" || true
+            done
+          fi
+
+      - name: Notify Discord (success)
+        if: success()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          CER="${{ steps.poll.outputs.cer }}"
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"✅ **Colab GPU学習完了**\nDir: \`${{ inputs.competition_dir }}\`\nModel: \`${{ inputs.model_release_tag }}\`\nCER: ${CER}\nMemo: ${{ inputs.memo }}\n\n次: Package DrivenData Submission を実行\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
+
+      - name: Notify Discord (failure)
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          ERROR="${{ steps.poll.outputs.error }}"
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"❌ **Colab GPU学習失敗**\nDir: \`${{ inputs.competition_dir }}\`\nError: ${ERROR:-unknown}\nMemo: ${{ inputs.memo }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true

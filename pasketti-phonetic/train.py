@@ -170,8 +170,9 @@ class DataCollatorCTC:
             )
             input_values_list.append(inputs.input_values.squeeze(0))
 
-            with self.processor.as_target_processor():
-                labels = self.processor(text=feat["text"], return_tensors="pt")
+            labels = self.processor.tokenizer(
+                feat["text"], return_tensors="pt"
+            )
             labels_list.append(labels.input_ids.squeeze(0))
 
         # Pad input values
