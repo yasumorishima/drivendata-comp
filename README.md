@@ -37,16 +37,19 @@ Children's speech differs significantly from adult speech (pronunciation errors,
 ### Experiment Iteration (Colab GPU)
 
 ```
-[Local PC]                  [RPi5]                     [Google Colab (Free)]
-Claude Code                 Chromium + wtype keepalive  File Monitor Notebook
-  ↓ Write config/code        ↓ Session keepalive         ↓ Auto-run train.py
-  ↓                          ↓ 30min heartbeat           ↓
+[Local PC]                  [RPi5 (TigerVNC)]          [Google Colab (Free)]
+Claude Code                 Chromium + keepalive        Experiment Runner v3
+  ↓ Write config to Drive     ↓ VNC for OAuth/setup       ↓ Monitor Drive for configs
+  ↓                          ↓ Auto session keepalive     ↓ Download data (GH Artifact → local)
 Google Drive (for Desktop) ←――――――――――――――――――→ Google Drive (mount)
-  EXP/config/child-exp005.yaml                          Detect new config → execute
-  EXP/output/child-exp005/result.json                   Save results to Drive
+  EXP/config/child-exp005.yaml                          Detect config → setup_data.py → train.py
+  EXP/output/child-exp005/result.json                   Results saved to Drive
 ```
 
-Same methodology as [kaggle-competitions](https://github.com/yasumorishima/kaggle-competitions#-experiment-management-exp--child-exp).
+- Training data is downloaded to Colab local storage (ephemeral, not Drive) to save quota
+- RPi5 TigerVNC allows manual OAuth/2FA approval, then keepalive runs unattended
+- Claude Code session can be closed while GPU training runs
+- Same methodology as [kaggle-competitions](https://github.com/yasumorishima/kaggle-competitions#-experiment-management-exp--child-exp)
 
 ### Final Training & Submission (GitHub Actions + Kaggle GPU)
 
@@ -61,16 +64,20 @@ Download Data (Playwright) → Kaggle P100 Train → GitHub Release → Package 
 ### Drive Structure
 
 ```
-Google Drive/kaggle/pasketti/
-├── EXP_SUMMARY.md              # Experiment history
-├── CLAUDE_COMP.md              # Competition-specific AI guardrails
-├── setup_data.md               # Data download instructions
-└── EXP/EXP001/
-    ├── train.py                # Wav2Vec2 CTC (YAML config support)
-    ├── config/
-    │   ├── child-exp000.yaml   # wav2vec2-base baseline
-    │   └── child-exp001.yaml   # wav2vec2-large-xlsr-53
-    └── output/
+Google Drive/kaggle/
+├── runner/
+│   └── experiment_runner.ipynb  # v3: multi-competition, auto data download
+└── pasketti/
+    ├── requirements.txt         # ASR dependencies (torch, transformers, etc.)
+    ├── setup_data.py            # Downloads data from GH Artifact to Colab local
+    ├── EXP_SUMMARY.md
+    ├── CLAUDE_COMP.md
+    └── EXP/EXP001/
+        ├── train.py             # Wav2Vec2 CTC fine-tuning
+        ├── config/
+        │   ├── child-exp000.yaml   # wav2vec2-base baseline
+        │   └── child-exp001.yaml   # wav2vec2-large-xlsr-53
+        └── output/                 # Results saved here (result.json, train.log)
 ```
 
 ## Workflows
@@ -114,6 +121,7 @@ gh workflow run "Package DrivenData Submission" \
 | Experiment Tracking | W&B (offline sync) |
 | Notifications | Discord Webhook |
 | Data Download | Playwright (headless browser) |
+| Session Keepalive | RPi5 + TigerVNC + Chromium CDP |
 
 ## Project Structure
 
