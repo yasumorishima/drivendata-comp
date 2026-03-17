@@ -37,17 +37,17 @@ Children's speech differs significantly from adult speech (pronunciation errors,
 ### Experiment Iteration (Colab GPU)
 
 ```
-[Local PC]                  [RPi5 (TigerVNC)]          [Google Colab (Free)]
-Claude Code                 Chromium + keepalive        Experiment Runner v3
-  ↓ Write config to Drive     ↓ VNC for OAuth/setup       ↓ Monitor Drive for configs
-  ↓                          ↓ Auto session keepalive     ↓ Download data (GH Artifact → local)
+[Local PC]                  [RPi5 (xrdp)]               [Google Colab (Free)]
+Claude Code                 Remote Desktop session       Experiment Runner v4
+  ↓ Write config to Drive     ↓ RDP for OAuth/setup        ↓ Monitor Drive for configs
+  ↓                          ↓ Session persists on DC      ↓ Download data (GH Artifact → local)
 Google Drive (for Desktop) ←――――――――――――――――――→ Google Drive (mount)
   EXP/config/child-exp005.yaml                          Detect config → setup_data.py → train.py
   EXP/output/child-exp005/result.json                   Results saved to Drive
 ```
 
 - Training data is downloaded to Colab local storage (ephemeral, not Drive) to save quota
-- RPi5 TigerVNC allows manual OAuth/2FA approval, then keepalive runs unattended
+- RPi5 xrdp allows manual OAuth/2FA approval; RDP session persists after disconnect
 - Claude Code session can be closed while GPU training runs
 - Same methodology as [kaggle-competitions](https://github.com/yasumorishima/kaggle-competitions#-experiment-management-exp--child-exp)
 
@@ -121,7 +121,7 @@ gh workflow run "Package DrivenData Submission" \
 | Experiment Tracking | W&B (offline sync) |
 | Notifications | Discord Webhook |
 | Data Download | Playwright (headless browser) |
-| Session Keepalive | RPi5 + TigerVNC + Chromium CDP |
+| Session Keepalive | RPi5 + xrdp + Chromium |
 
 ## Project Structure
 
