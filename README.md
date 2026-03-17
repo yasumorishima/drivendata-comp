@@ -66,9 +66,9 @@ Download Data (Playwright) → Kaggle P100 Train → GitHub Release → Package 
 ```
 Google Drive/kaggle/
 ├── runner/
-│   └── experiment_runner.ipynb  # v3: multi-competition, auto data download
+│   └── experiment_runner.ipynb  # v3.1: multi-comp, real-time logging, GPU check
 └── pasketti/
-    ├── requirements.txt         # ASR dependencies (torch, transformers, etc.)
+    ├── requirements.txt         # ASR deps (Colab未搭載のもののみ: librosa, soundfile, jiwer)
     ├── setup_data.py            # Downloads data from GH Artifact to Colab local
     ├── EXP_SUMMARY.md
     ├── CLAUDE_COMP.md
@@ -144,7 +144,8 @@ drivendata-comp/
 
 - [x] Pipeline: Download → Kaggle GPU Train → Release (GPU→CPU fallback)
 - [x] EXP + child-exp experiment iteration via Colab + Google Drive
-- [ ] Phonetic v3 training (wav2vec2-base CTC baseline)
+- [x] Runner v3.1: real-time logging, GPU enforcement, GH_TOKEN Drive fallback
+- [ ] Phonetic child-exp000 (wav2vec2-base CTC baseline) — T4 GPU学習中
 - [ ] Package Submission → first DrivenData submission (CER score)
 - [ ] Phonetic improvements: wav2vec2-large-xlsr-53, data augmentation, LM decode
 - [ ] Word Track: Parakeet TDT 0.6B (17.3GB audio data)
