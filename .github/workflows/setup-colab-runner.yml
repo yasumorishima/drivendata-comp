@@ -1,0 +1,64 @@
+name: Setup Colab ASR Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      memo:
+        description: "Run memo (required)"
+        required: true
+        type: string
+
+jobs:
+  upload:
+    name: Upload ASR Runner Notebook to Drive
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install google-api-python-client google-auth
+
+      - name: Upload notebook to Drive
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          DRIVE_SHARED_FOLDER_ID: ${{ secrets.DRIVE_SHARED_FOLDER_ID }}
+        run: python scripts/upload_colab_notebook.py
+
+      - name: Create experiments folder
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          DRIVE_SHARED_FOLDER_ID: ${{ secrets.DRIVE_SHARED_FOLDER_ID }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, sys
+          sys.path.insert(0, "scripts")
+          from drive_helper import get_drive_service, find_or_create_folder
+
+          service = get_drive_service()
+          root_id = os.environ["DRIVE_SHARED_FOLDER_ID"]
+
+          comp_id = find_or_create_folder(service, "drivendata-pasketti", root_id)
+          exp_id = find_or_create_folder(service, "experiments", comp_id)
+          print(f"Folder structure ready: drivendata-pasketti/experiments/")
+          PYEOF
+
+      - name: Notify Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "{\"content\": \"✅ **Colab ASR Runner セットアップ完了**\nDriveにノートブック + フォルダ構成をアップロード済み\nMemo: ${{ inputs.memo }}\n\n次: Driveのnotebookを開いてColabでGPUランタイムを選択→メインループ起動\"}" || true
+          else
+            curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "{\"content\": \"❌ **Colab ASR Runner セットアップ失敗**\nMemo: ${{ inputs.memo }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
+          fi
