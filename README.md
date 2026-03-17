@@ -48,6 +48,7 @@ Google Drive (for Desktop) ←――――――――――――――――�
 
 - Training data is downloaded to Colab local storage (ephemeral, not Drive) to save quota
 - RPi5 xrdp allows manual OAuth/2FA approval; RDP session persists after disconnect
+- xdotool keepalive (systemd) sends Page Down/Up every 30 min to prevent Colab idle timeout
 - Claude Code session can be closed while GPU training runs
 - Same methodology as [kaggle-competitions](https://github.com/yasumorishima/kaggle-competitions#-experiment-management-exp--child-exp)
 
