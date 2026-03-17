@@ -35,35 +35,28 @@ Children's speech differs significantly from adult speech (pronunciation errors,
 
 ## Pipeline Overview
 
+Two GPU training paths are available depending on the situation:
+
+### Path A: Kaggle GPU (Automated)
+
 ```
-┌─────────────────────────┐
-│ 1. Download Data        │  GitHub Actions + Playwright
-│    → Artifact           │  (auto-login, auto-download)
-└──────────┬──────────────┘
-           ▼
-┌─────────────────────────┐
-│ 2. GPU Train            │  Kaggle P100 GPU
-│    train.py (base64)    │  (GPU→CPU auto-fallback)
-│    → model weights      │
-│    → GitHub Release     │
-└──────────┬──────────────┘
-           ▼
-┌─────────────────────────┐
-│ 3. Package Submission   │  GitHub Actions
-│    main.py + model/     │  → submission.zip
-│    → Artifact           │
-└──────────┬──────────────┘
-           ▼
-┌─────────────────────────┐
-│ 4. Manual Submit        │  Upload ZIP on DrivenData
-└─────────────────────────┘
+Download Data (Playwright) → Kaggle P100 Train → GitHub Release → Package ZIP → Submit
 ```
 
-### GPU → CPU Fallback
+- GPU→CPU auto-fallback on quota/OOM/CUDA errors
+- Polling waits for `RUNNING`/`QUEUED` before checking completion
+- `COMPLETE_EMPTY` (no output) treated as failure
 
-- GPU kernel failure (quota, OOM, CUDA error, etc.) → automatic CPU retry + Discord notification
-- Polling waits for `RUNNING`/`QUEUED` transition before checking completion (stale status防止)
-- `COMPLETE_EMPTY` (no output) is treated as failure, not success
+### Path B: Colab GPU (Automated via Google Drive)
+
+```
+GH Actions → trigger.json + train.py to Drive → Colab Runner picks up → model.tar.gz → GH Release
+```
+
+- Service Account uploads experiment config to Google Drive
+- Colab notebook (GPU T4) monitors Drive folder, auto-executes training
+- Results polled by GH Actions (up to 6 hours), then packaged as Release
+- RPi5 keepalive maintains Colab session
 
 ## Workflows
 
@@ -72,7 +65,9 @@ Children's speech differs significantly from adult speech (pronunciation errors,
 | **Check Competitions** | List active DrivenData competitions | `workflow_dispatch` |
 | **Download Competition Data** | Playwright auto-download → Artifact | `workflow_dispatch` |
 | **DrivenData Train & Validate** | CSV submission: train → validate → submission.csv | `workflow_dispatch` |
-| **DrivenData GPU Train (Kaggle)** | Code submission: Kaggle GPU train → Release | `workflow_dispatch` |
+| **DrivenData GPU Train (Kaggle)** | Code submission: Kaggle P100 train → Release | `workflow_dispatch` |
+| **DrivenData GPU Train (Colab)** | Code submission: Colab T4 train via Drive → Release | `workflow_dispatch` |
+| **Setup Colab ASR Runner** | Upload Colab notebook to Google Drive (one-time) | `workflow_dispatch` |
 | **Package DrivenData Submission** | Code submission: Release model + main.py → ZIP | `workflow_dispatch` |
 
 ## Quick Start
@@ -80,22 +75,25 @@ Children's speech differs significantly from adult speech (pronunciation errors,
 ```bash
 # 1. Download data
 gh workflow run "Download Competition Data" \
-  --repo yasumorishima/drivendata-comp \
   -f memo="initial download"
 
-# 2. Train on Kaggle GPU
+# 2a. Train on Kaggle GPU
 gh workflow run "DrivenData GPU Train (Kaggle)" \
-  --repo yasumorishima/drivendata-comp \
   -f competition_dir=pasketti-phonetic \
-  -f model_release_tag=phonetic-model-v2 \
-  -f memo="v2: wav2vec2-base baseline"
+  -f model_release_tag=phonetic-model-v3 \
+  -f memo="wav2vec2-base CTC baseline"
+
+# 2b. Or train on Colab GPU (requires Colab notebook running)
+gh workflow run "DrivenData GPU Train (Colab)" \
+  -f competition_dir=pasketti-phonetic \
+  -f model_release_tag=phonetic-model-v3 \
+  -f memo="wav2vec2-base CTC baseline"
 
 # 3. Package for submission
 gh workflow run "Package DrivenData Submission" \
-  --repo yasumorishima/drivendata-comp \
   -f competition_dir=pasketti-phonetic \
-  -f model_release_tag=phonetic-model-v2 \
-  -f memo="v2: baseline submission"
+  -f model_release_tag=phonetic-model-v3 \
+  -f memo="baseline submission"
 ```
 
 ## Tech Stack
@@ -104,7 +102,7 @@ gh workflow run "Package DrivenData Submission" \
 |---|---|
 | Training | PyTorch + HuggingFace Transformers |
 | ASR Model | Wav2Vec2 (CTC) / Parakeet TDT (planned) |
-| GPU | Kaggle P100 (free tier) |
+| GPU | Kaggle P100 / Google Colab T4 (free tier) |
 | CI/CD | GitHub Actions |
 | Experiment Tracking | W&B (offline sync from Kaggle) |
 | Notifications | Discord Webhook |
@@ -123,7 +121,8 @@ drivendata-comp/
 │   ├── generate_notebook.py  # Embeds train.py into Kaggle notebook
 │   └── kernel-metadata.json
 ├── pasketti-word/            # Word Track (TBD)
-├── scripts/                  # Utility scripts
+├── colab/                    # Colab GPU runner notebook
+├── scripts/                  # Utility scripts (Drive API, data download)
 └── DRIVENDATA_MEMO.md        # Internal operation notes
 ```
 
@@ -144,7 +143,7 @@ Google Drive (for Desktop) ←――――――――――――――――�
 ### Drive Structure
 
 ```
-G:/マイドライブ/kaggle/pasketti/
+Google Drive/kaggle/pasketti/
 ├── EXP_SUMMARY.md              # Experiment history
 ├── CLAUDE_COMP.md              # Competition-specific AI guardrails
 ├── setup_data.md               # Data download instructions
@@ -166,7 +165,8 @@ G:/マイドライブ/kaggle/pasketti/
 ## Roadmap
 
 - [x] Pipeline: Download → Kaggle GPU Train → Release (GPU→CPU fallback)
-- [ ] Phonetic v2 training (CPU fallback, wav2vec2-base CTC baseline)
+- [x] Pipeline: Colab GPU Train via Google Drive (Service Account + polling)
+- [ ] Phonetic v3 training (wav2vec2-base CTC baseline)
 - [ ] Package Submission → first DrivenData submission (CER score)
 - [ ] Phonetic improvements: wav2vec2-large-xlsr-53, data augmentation, LM decode
 - [ ] Word Track: Parakeet TDT 0.6B (17.3GB audio data)
