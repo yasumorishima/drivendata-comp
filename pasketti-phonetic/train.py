@@ -337,8 +337,10 @@ def main():
         metric_for_best_model="cer",
         greater_is_better=False,
         logging_steps=100,
-        bf16=torch.cuda.is_bf16_supported() if torch.cuda.is_available() else False,
-        fp16=not torch.cuda.is_bf16_supported() if torch.cuda.is_available() else False,
+        bf16=(torch.cuda.is_bf16_supported() if torch.cuda.is_available()
+              else bool(os.environ.get("XLA_USE_BF16"))),
+        fp16=(not torch.cuda.is_bf16_supported() if torch.cuda.is_available()
+              else False),
         dataloader_num_workers=2,
         report_to="wandb",
         max_grad_norm=1.0,

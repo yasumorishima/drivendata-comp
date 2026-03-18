@@ -137,12 +137,17 @@ jobs:
               "outputs": [],
           }
 
-          # Find insert position (after first code cell)
+          # Find insert position (after second code cell = pip install cell)
+          # Cell order: [md title, code env, code pip install, ...]
+          # TPU cell must come AFTER pip install to avoid transformers being overwritten
+          code_count = 0
           insert_idx = 1
           for i, cell in enumerate(nb["cells"]):
               if cell["cell_type"] == "code":
-                  insert_idx = i + 1
-                  break
+                  code_count += 1
+                  if code_count == 2:  # after pip install cell
+                      insert_idx = i + 1
+                      break
 
           nb["cells"].insert(insert_idx, tpu_cell)
 
