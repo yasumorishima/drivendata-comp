@@ -107,24 +107,42 @@ jobs:
           with open("${{ inputs.competition_dir }}/train_kaggle.ipynb") as f:
               nb = json.load(f)
 
-          # TPU setup: Kaggle TPU env has torch_xla pre-installed — do NOT reinstall
-          # torch or torch_xla (causes version conflicts). Only configure env vars.
+          # TPU strategy: Kaggle TPU has torch+torch_xla pre-installed.
+          # pip install transformers/accelerate can break torch compatibility.
+          # Solution:
+          # 1. Remove transformers/accelerate from pip install cell (keep other deps)
+          # 2. In TPU cell, install transformers+accelerate with --no-deps (don't touch torch)
+          # 3. Install only missing sub-deps (safetensors, tokenizers, huggingface-hub)
           tpu_cell = {
               "cell_type": "code",
               "metadata": {},
               "source": [
-                  "# TPU Setup — use Kaggle's pre-installed torch_xla (do NOT pip install torch_xla)\n",
+                  "# TPU Setup — install transformers WITHOUT touching torch/torch_xla\n",
+                  "import subprocess, sys\n",
+                  "\n",
+                  "# Install transformers + accelerate without pulling torch deps\n",
+                  "subprocess.run([sys.executable, '-m', 'pip', 'install', '-q',\n",
+                  "    'transformers', 'accelerate', 'safetensors', 'tokenizers',\n",
+                  "    'huggingface-hub', 'regex', 'pyyaml',\n",
+                  "    '--no-deps', '--ignore-installed'],\n",
+                  "    check=True)\n",
+                  "# Install sub-deps that --no-deps skipped (except torch)\n",
+                  "subprocess.run([sys.executable, '-m', 'pip', 'install', '-q',\n",
+                  "    'safetensors', 'tokenizers', 'huggingface-hub', 'regex',\n",
+                  "    'pyyaml', 'tqdm', 'filelock', 'packaging', 'psutil'],\n",
+                  "    check=True)\n",
+                  "\n",
                   "import torch\n",
                   "import torch_xla\n",
                   "import torch_xla.core.xla_model as xm\n",
-                  "from transformers import Trainer  # verify import works\n",
+                  "from transformers import Trainer\n",
                   "print(f'torch: {torch.__version__}')\n",
                   "print(f'torch_xla: {torch_xla.__version__}')\n",
                   "print(f'TPU device: {xm.xla_device()}')\n",
                   "print(f'Trainer import: OK')\n",
                   "\n",
                   "import os\n",
-                  "os.environ['XLA_USE_BF16'] = '1'  # TPU v3 supports bfloat16 natively\n",
+                  "os.environ['XLA_USE_BF16'] = '1'\n",
                   "os.environ['PJRT_DEVICE'] = 'TPU'\n",
                   "print('TPU configured for bf16 training')\n",
               ],
@@ -132,27 +150,26 @@ jobs:
               "outputs": [],
           }
 
-          # Find insert position (after second code cell = pip install cell)
-          # Cell order: [md title, code env, code pip install, ...]
-          # TPU cell must come AFTER pip install to avoid transformers being overwritten
+          # Find pip install cell and strip transformers-related packages
+          # (they'll be installed in the TPU cell with --no-deps instead)
+          for i, cell in enumerate(nb["cells"]):
+              if cell["cell_type"] == "code":
+                  src = "".join(cell["source"]) if isinstance(cell["source"], list) else cell["source"]
+                  if "transformers" in src and "pip install" in src:
+                      # Remove transformers[torch] from pip install, keep other deps
+                      new_src = src.replace("transformers[torch] ", "").replace("transformers ", "")
+                      cell["source"] = [new_src]
+                      print(f"Stripped transformers from pip install cell {i}")
+                      break
+
+          # Insert TPU cell after pip install cell (2nd code cell)
           code_count = 0
           insert_idx = 1
           for i, cell in enumerate(nb["cells"]):
               if cell["cell_type"] == "code":
                   code_count += 1
-                  if code_count == 2:  # after pip install cell
+                  if code_count == 2:
                       insert_idx = i + 1
-                      break
-
-          # Patch pip install cell: replace transformers[torch] with transformers
-          # to prevent pip from upgrading torch and breaking torch_xla compatibility
-          for cell in nb["cells"]:
-              if cell["cell_type"] == "code":
-                  src = "".join(cell["source"]) if isinstance(cell["source"], list) else cell["source"]
-                  if "transformers[torch]" in src:
-                      new_src = src.replace("transformers[torch]", "transformers accelerate")
-                      cell["source"] = [new_src]
-                      print("Patched pip install: transformers[torch] -> transformers accelerate")
                       break
 
           nb["cells"].insert(insert_idx, tpu_cell)
