@@ -119,6 +119,32 @@ gh workflow run "Package DrivenData Submission" \
   -f memo="baseline submission"
 ```
 
+## Training Flows
+
+3つの学習環境を使い分ける。GPU/TPU枠は別カウントなので、一方が切れてももう一方で学習可能。
+
+| Flow | Accelerator | Use Case | Quota |
+|---|---|---|---|
+| **Kaggle GPU** | P100 | 本番学習 | 週30h（土曜リセット） |
+| **Kaggle TPU** | TPU v3-8 (128GB HBM) | GPU枠切れ時の代替 | 週30h（GPU枠とは別） |
+| **Colab GPU** | T4 (RPi5経由) | 実験イテレーション | 1日数時間（12-24hリセット） |
+
+```
+学習したい
+  ├── 実験イテレーション → Colab GPU（EXP + child-exp）
+  ├── 本番学習
+  │   ├── Kaggle GPU枠あり → DrivenData GPU Train (Kaggle)
+  │   ├── GPU枠切れ、TPU枠あり → DrivenData TPU Train (Kaggle)
+  │   └── 両方切れ → 翌日待ち
+```
+
+### Checkpoint Resume（セッション切れ対策）
+
+- 200ステップごとにチェックポイント保存
+- 保存直後に `os.sync()` で Google Drive に即flush
+- 次回起動時、最新チェックポイントから自動再開
+- `save_total_limit=3`（直近3世代保持）
+
 ## Tech Stack
 
 | Component | Technology |
