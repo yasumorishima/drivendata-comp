@@ -22,9 +22,10 @@ Children's speech differs significantly from adult speech (pronunciation errors,
 ### Approach
 
 **Phonetic Track (in progress)**
-- Base model: `facebook/wav2vec2-base` with CTC head
+- Base model: `facebook/wav2vec2-base` / `facebook/wav2vec2-large-xlsr-53` with CTC head
 - IPA vocabulary built from training transcripts (100+ IPA characters)
-- SpecAugment + cosine LR decay + gradient accumulation
+- Cosine LR decay + gradient accumulation
+- Checkpoint resume: session切れでも途中から再開可能
 
 **Word Track (planned)**
 - Base model: NVIDIA Parakeet TDT 0.6B
@@ -48,7 +49,7 @@ Google Drive (for Desktop) ←――――――――――――――――�
 
 - Training data is downloaded to Colab local storage (ephemeral, not Drive) to save quota
 - RPi5 xrdp allows manual OAuth/2FA approval; RDP session persists after disconnect
-- xdotool keepalive (systemd) sends Page Down/Up every 30 min to prevent Colab idle timeout
+- CDP keepalive (systemd) executes JS via Chrome DevTools Protocol every 20 min to prevent Colab idle timeout
 - Claude Code session can be closed while GPU training runs
 - Same methodology as [kaggle-competitions](https://github.com/yasumorishima/kaggle-competitions#-experiment-management-exp--child-exp)
 
@@ -67,18 +68,18 @@ Download Data (Playwright) → Kaggle P100 Train → GitHub Release → Package 
 ```
 Google Drive/kaggle/
 ├── runner/
-│   └── experiment_runner.ipynb  # v3.1: multi-comp, real-time logging, GPU check
+│   └── experiment_runner_v4.ipynb  # v4.1: multi-comp, real-time logging, GPU check, heartbeat
 └── pasketti/
-    ├── requirements.txt         # ASR deps (Colab未搭載のもののみ: librosa, soundfile, jiwer)
+    ├── requirements.txt         # ASR deps (librosa, soundfile, jiwer)
     ├── setup_data.py            # Downloads data from GH Artifact to Colab local
-    ├── EXP_SUMMARY.md
-    ├── CLAUDE_COMP.md
-    └── EXP/EXP001/
-        ├── train.py             # Wav2Vec2 CTC fine-tuning
-        ├── config/
-        │   ├── child-exp000.yaml   # wav2vec2-base baseline
-        │   └── child-exp001.yaml   # wav2vec2-large-xlsr-53
-        └── output/                 # Results saved here (result.json, train.log)
+    └── EXP/
+        ├── requirements.txt     # Copy for runner discovery
+        └── EXP001/
+            ├── train.py         # Wav2Vec2 CTC fine-tuning
+            ├── config/
+            │   ├── child-exp000.yaml   # wav2vec2-base (batch=16, grad_accum=4)
+            │   └── child-exp001.yaml   # wav2vec2-large-xlsr-53 (batch=2, grad_accum=32)
+            └── output/          # Results (result.json, train.log, checkpoints)
 ```
 
 ## Workflows
@@ -89,6 +90,7 @@ Google Drive/kaggle/
 | **Download Competition Data** | Playwright auto-download → Artifact | `workflow_dispatch` |
 | **DrivenData Train & Validate** | CSV submission: train → validate → submission.csv | `workflow_dispatch` |
 | **DrivenData GPU Train (Kaggle)** | Code submission: Kaggle P100 train → Release | `workflow_dispatch` |
+| **DrivenData TPU Train (Kaggle)** | Code submission: Kaggle TPU v3-8 train → Release | `workflow_dispatch` |
 | **Package DrivenData Submission** | Code submission: Release model + main.py → ZIP | `workflow_dispatch` |
 
 ## Quick Start
@@ -98,11 +100,17 @@ Google Drive/kaggle/
 gh workflow run "Download Competition Data" \
   -f memo="initial download"
 
-# 2. Train on Kaggle GPU (after Colab experiments confirm best config)
+# 2a. Train on Kaggle GPU
 gh workflow run "DrivenData GPU Train (Kaggle)" \
   -f competition_dir=pasketti-phonetic \
   -f model_release_tag=phonetic-model-v3 \
   -f memo="wav2vec2-base CTC baseline"
+
+# 2b. Or train on Kaggle TPU (separate quota from GPU)
+gh workflow run "DrivenData TPU Train (Kaggle)" \
+  -f competition_dir=pasketti-phonetic \
+  -f model_release_tag=phonetic-tpu-v1 \
+  -f memo="wav2vec2-base CTC on TPU v3-8"
 
 # 3. Package for submission
 gh workflow run "Package DrivenData Submission" \
@@ -117,12 +125,12 @@ gh workflow run "Package DrivenData Submission" \
 |---|---|
 | Training | PyTorch + HuggingFace Transformers |
 | ASR Model | Wav2Vec2 (CTC) / Parakeet TDT (planned) |
-| GPU | Google Colab T4 (iteration) / Kaggle P100 (final) |
+| Accelerator | Colab T4 (iteration) / Kaggle P100 (GPU) / Kaggle TPU v3-8 |
 | CI/CD | GitHub Actions |
 | Experiment Tracking | W&B (offline sync) |
 | Notifications | Discord Webhook |
 | Data Download | Playwright (headless browser) |
-| Session Keepalive | RPi5 + xrdp + Chromium |
+| Session Keepalive | RPi5 + xrdp + Chromium CDP (Chrome DevTools Protocol) |
 
 ## Project Structure
 
@@ -145,10 +153,14 @@ drivendata-comp/
 
 - [x] Pipeline: Download → Kaggle GPU Train → Release (GPU→CPU fallback)
 - [x] EXP + child-exp experiment iteration via Colab + Google Drive
-- [x] Runner v3.1: real-time logging, GPU enforcement, GH_TOKEN Drive fallback
-- [ ] Phonetic child-exp000 (wav2vec2-base CTC baseline) — T4 GPU学習中
+- [x] Runner v4.1: real-time logging, GPU enforcement, GH_TOKEN Drive fallback, heartbeat
+- [x] CDP keepalive: Chrome DevTools Protocol via systemd (replaces xdotool)
+- [x] Kaggle TPU v3-8 training workflow (GPU枠とは別枠で学習可能)
+- [x] Checkpoint resume with Drive flush (200 steps保存、os.sync()で即flush)
+- [ ] Phonetic child-exp000 (wav2vec2-base CTC baseline) — TPU v3-8で実行中 (3/19)
+- [ ] Phonetic child-exp001 (wav2vec2-large-xlsr-53) — OOM修正済み、exp000後に実行
 - [ ] Package Submission → first DrivenData submission (CER score)
-- [ ] Phonetic improvements: wav2vec2-large-xlsr-53, data augmentation, LM decode
+- [ ] Phonetic improvements: data augmentation, pyctcdecode LM
 - [ ] Word Track: Parakeet TDT 0.6B (17.3GB audio data)
 
 ## Profile
