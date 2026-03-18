@@ -122,7 +122,6 @@ jobs:
                   "import torch_xla.core.xla_model as xm\n",
                   "print(f'torch_xla: {torch_xla.__version__}')\n",
                   "print(f'TPU device: {xm.xla_device()}')\n",
-                  "print(f'TPU cores: {xm.xrt_world_size()}')\n",
                   "\n",
                   "# HuggingFace Trainer auto-detects TPU via torch_xla\n",
                   "import os\n",
