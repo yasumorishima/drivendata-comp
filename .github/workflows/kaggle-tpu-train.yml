@@ -107,30 +107,25 @@ jobs:
           with open("${{ inputs.competition_dir }}/train_kaggle.ipynb") as f:
               nb = json.load(f)
 
-          # Insert TPU setup cell right after the first code cell (env setup)
+          # TPU setup: Kaggle TPU env has torch_xla pre-installed — do NOT reinstall
+          # torch or torch_xla (causes version conflicts). Only configure env vars.
           tpu_cell = {
               "cell_type": "code",
               "metadata": {},
               "source": [
-                  "# TPU Setup — install torch_xla, then reinstall transformers for compatibility\n",
-                  "import subprocess, sys\n",
-                  "subprocess.run([sys.executable, '-m', 'pip', 'install', '-q',\n",
-                  "    'torch_xla[tpu]', '-f', 'https://storage.googleapis.com/libtpu-releases/index.html'],\n",
-                  "    check=True)\n",
-                  "# Reinstall transformers after torch_xla (version conflict fix)\n",
-                  "subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--force-reinstall',\n",
-                  "    'transformers[torch]', 'accelerate'],\n",
-                  "    check=True)\n",
-                  "\n",
+                  "# TPU Setup — use Kaggle's pre-installed torch_xla (do NOT pip install torch_xla)\n",
+                  "import torch\n",
                   "import torch_xla\n",
                   "import torch_xla.core.xla_model as xm\n",
                   "from transformers import Trainer  # verify import works\n",
+                  "print(f'torch: {torch.__version__}')\n",
                   "print(f'torch_xla: {torch_xla.__version__}')\n",
                   "print(f'TPU device: {xm.xla_device()}')\n",
                   "print(f'Trainer import: OK')\n",
                   "\n",
                   "import os\n",
                   "os.environ['XLA_USE_BF16'] = '1'  # TPU v3 supports bfloat16 natively\n",
+                  "os.environ['PJRT_DEVICE'] = 'TPU'\n",
                   "print('TPU configured for bf16 training')\n",
               ],
               "execution_count": None,
@@ -147,6 +142,17 @@ jobs:
                   code_count += 1
                   if code_count == 2:  # after pip install cell
                       insert_idx = i + 1
+                      break
+
+          # Patch pip install cell: replace transformers[torch] with transformers
+          # to prevent pip from upgrading torch and breaking torch_xla compatibility
+          for cell in nb["cells"]:
+              if cell["cell_type"] == "code":
+                  src = "".join(cell["source"]) if isinstance(cell["source"], list) else cell["source"]
+                  if "transformers[torch]" in src:
+                      new_src = src.replace("transformers[torch]", "transformers accelerate")
+                      cell["source"] = [new_src]
+                      print("Patched pip install: transformers[torch] -> transformers accelerate")
                       break
 
           nb["cells"].insert(insert_idx, tpu_cell)
