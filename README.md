@@ -126,7 +126,7 @@ gh workflow run "Package DrivenData Submission" \
 | Flow | Accelerator | Use Case | Quota |
 |---|---|---|---|
 | **Kaggle GPU** | P100 | 本番学習 | 週30h（土曜リセット） |
-| **Kaggle TPU** | TPU v3-8 (128GB HBM) | GPU枠切れ時の代替 | 週30h（GPU枠とは別） |
+| **Kaggle TPU** | TPU v3-8 (128GB HBM, bf16) | GPU枠切れ時の代替 | 週30h（GPU枠とは別） |
 | **Colab GPU** | T4 (RPi5経由) | 実験イテレーション | 1日数時間（12-24hリセット） |
 
 ```
@@ -137,6 +137,13 @@ gh workflow run "Package DrivenData Submission" \
   │   ├── GPU枠切れ、TPU枠あり → DrivenData TPU Train (Kaggle)
   │   └── 両方切れ → 翌日待ち
 ```
+
+### TPU Training Notes
+
+- Kaggle TPU環境のプリインストール済み `torch_xla` をそのまま使用（再インストールするとtorchバージョン競合を起こす）
+- `XLA_USE_BF16=1` + `PJRT_DEVICE=TPU` で bf16 学習を有効化
+- pip installで `transformers[torch]` ではなく `transformers` を使用（`[torch]` extraがtorchを上書きしてPyTreeSpec互換性を壊す）
+- HuggingFace TrainerはTPUを自動検出
 
 ### Checkpoint Resume（セッション切れ対策）
 
@@ -183,7 +190,7 @@ drivendata-comp/
 - [x] CDP keepalive: Chrome DevTools Protocol via systemd (replaces xdotool)
 - [x] Kaggle TPU v3-8 training workflow (GPU枠とは別枠で学習可能)
 - [x] Checkpoint resume with Drive flush (200 steps保存、os.sync()で即flush)
-- [ ] Phonetic child-exp000 (wav2vec2-base CTC baseline) — TPU v3-8で実行中 (3/19)
+- [ ] Phonetic wav2vec2-base CTC — TPU v3-8で学習中 (Run 23271077983, 3/19)
 - [ ] Phonetic child-exp001 (wav2vec2-large-xlsr-53) — OOM修正済み、exp000後に実行
 - [ ] Package Submission → first DrivenData submission (CER score)
 - [ ] Phonetic improvements: data augmentation, pyctcdecode LM
