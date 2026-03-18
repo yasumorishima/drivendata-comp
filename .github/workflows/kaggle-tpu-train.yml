@@ -1,0 +1,352 @@
+name: DrivenData TPU Train (Kaggle)
+
+on:
+  workflow_dispatch:
+    inputs:
+      competition_dir:
+        description: "Competition directory (e.g. pasketti-phonetic)"
+        required: true
+        type: string
+      model_release_tag:
+        description: "GitHub Release tag for model weights (e.g. phonetic-tpu-v1)"
+        required: true
+        type: string
+      memo:
+        description: "Experiment description (required)"
+        required: true
+        type: string
+      model_name:
+        description: "Base model (default: from config)"
+        required: false
+        type: string
+      epochs:
+        description: "Training epochs (default: 20)"
+        required: false
+        type: string
+        default: "20"
+      batch_size:
+        description: "Batch size per device (default: 16)"
+        required: false
+        type: string
+        default: "16"
+      learning_rate:
+        description: "Learning rate (default: 5e-5)"
+        required: false
+        type: string
+        default: "5e-5"
+
+jobs:
+  train:
+    name: Train on Kaggle TPU
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install kaggle wandb
+
+      - name: Read competition config
+        id: config
+        run: |
+          CONFIG="${{ inputs.competition_dir }}/drivendata-config.json"
+          ARTIFACT_NAME=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('artifact_name',''))")
+          BASE_MODEL=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('base_model',''))")
+          KERNEL_ID=$(python3 -c "import json; print(json.load(open('${{ inputs.competition_dir }}/kernel-metadata.json')).get('id',''))")
+
+          MODEL_NAME="${{ inputs.model_name }}"
+          if [ -z "$MODEL_NAME" ]; then
+            MODEL_NAME="$BASE_MODEL"
+          fi
+
+          echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+          echo "model_name=$MODEL_NAME" >> "$GITHUB_OUTPUT"
+          echo "kernel_id=$KERNEL_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Generate training notebook
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+          RUN_MEMO: ${{ inputs.memo }}
+          MODEL_NAME: ${{ steps.config.outputs.model_name }}
+          EPOCHS: ${{ inputs.epochs }}
+          BATCH_SIZE: ${{ inputs.batch_size }}
+          LEARNING_RATE: ${{ inputs.learning_rate }}
+          GRADIENT_ACCUMULATION: "4"
+          ARTIFACT_NAME: ${{ steps.config.outputs.artifact_name }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd "${{ inputs.competition_dir }}"
+          python generate_notebook.py
+
+      - name: Switch kernel to TPU mode
+        run: |
+          METADATA="${{ inputs.competition_dir }}/kernel-metadata.json"
+          python3 -c "
+          import json
+          with open('$METADATA') as f:
+              meta = json.load(f)
+          meta['enable_gpu'] = 'false'
+          meta['enable_tpu'] = 'true'
+          with open('$METADATA', 'w') as f:
+              json.dump(meta, f, indent=2)
+          print('Switched to TPU: enable_gpu=false, enable_tpu=true')
+          "
+
+      - name: Inject TPU compatibility cell into notebook
+        run: |
+          NOTEBOOK="${{ inputs.competition_dir }}/train_kaggle.ipynb"
+          python3 << 'PYEOF'
+          import json
+
+          with open("${{ inputs.competition_dir }}/train_kaggle.ipynb") as f:
+              nb = json.load(f)
+
+          # Insert TPU setup cell right after the first code cell (env setup)
+          tpu_cell = {
+              "cell_type": "code",
+              "metadata": {},
+              "source": [
+                  "# TPU Setup — install torch_xla and configure for TPU v3-8\n",
+                  "import subprocess, sys\n",
+                  "subprocess.run([sys.executable, '-m', 'pip', 'install', '-q',\n",
+                  "    'torch_xla[tpu]', '-f', 'https://storage.googleapis.com/libtpu-releases/index.html'],\n",
+                  "    check=True)\n",
+                  "\n",
+                  "import torch_xla\n",
+                  "import torch_xla.core.xla_model as xm\n",
+                  "print(f'torch_xla: {torch_xla.__version__}')\n",
+                  "print(f'TPU device: {xm.xla_device()}')\n",
+                  "print(f'TPU cores: {xm.xrt_world_size()}')\n",
+                  "\n",
+                  "# HuggingFace Trainer auto-detects TPU via torch_xla\n",
+                  "import os\n",
+                  "os.environ['XLA_USE_BF16'] = '1'  # TPU v3 supports bfloat16 natively\n",
+                  "print('TPU configured for bf16 training')\n",
+              ],
+              "execution_count": None,
+              "outputs": [],
+          }
+
+          # Find insert position (after first code cell)
+          insert_idx = 1
+          for i, cell in enumerate(nb["cells"]):
+              if cell["cell_type"] == "code":
+                  insert_idx = i + 1
+                  break
+
+          nb["cells"].insert(insert_idx, tpu_cell)
+
+          with open("${{ inputs.competition_dir }}/train_kaggle.ipynb", "w") as f:
+              json.dump(nb, f, indent=1, ensure_ascii=False)
+
+          print(f"Injected TPU setup cell at position {insert_idx}")
+          PYEOF
+
+      - name: Setup Kaggle credentials
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          mkdir -p ~/.kaggle
+          echo "{\"username\":\"$KAGGLE_USERNAME\",\"key\":\"$KAGGLE_KEY\"}" > ~/.kaggle/kaggle.json
+          chmod 600 ~/.kaggle/kaggle.json
+          kaggle kernels list --mine --page-size 1 || { echo "ERROR: Kaggle auth failed"; exit 1; }
+
+      - name: Push and poll
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          KERNEL_ID="${{ steps.config.outputs.kernel_id }}"
+          NB_DIR="${{ inputs.competition_dir }}"
+
+          check_status() {
+            python3 -c "
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          import json
+          api = KaggleApi()
+          api.authenticate()
+          try:
+              result = api.kernels_status('$KERNEL_ID')
+              if isinstance(result, str):
+                  data = json.loads(result)
+              elif hasattr(result, 'status'):
+                  data = {'status': result.status}
+              else:
+                  data = json.loads(str(result))
+              print(data.get('status', 'UNKNOWN'))
+          except Exception as e:
+              print(f'CHECK_ERROR: {e}')
+          " 2>&1
+          }
+
+          # Wait for any existing run to finish
+          for i in $(seq 1 20); do
+            RAW=$(check_status)
+            echo "Pre-push check $i/20: $RAW"
+            if echo "$RAW" | grep -qiE "COMPLETE|ERROR|CANCEL|CHECK_ERROR"; then
+              break
+            fi
+            sleep 30
+          done
+
+          echo "=== Pushing TPU kernel ==="
+          PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
+          echo "Push output: $PUSH_OUTPUT"
+
+          if echo "$PUSH_OUTPUT" | grep -qiE "quota.*reached|TPU quota|session count"; then
+            echo "TPU quota exhausted."
+            curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d '{"content": "❌ **TPU枠切れ** — Kaggle TPU quota exhausted.\nKernel: `'"$KERNEL_ID"'`"}' || true
+            exit 1
+          fi
+
+          # Wait for startup
+          echo "Waiting 120s for Kaggle to initialize..."
+          sleep 120
+
+          STARTED=false
+          for i in $(seq 1 60); do
+            RAW=$(check_status)
+            if [ $((i % 5)) -eq 0 ]; then
+              echo "Startup check $i/60: $RAW"
+            fi
+            if echo "$RAW" | grep -qiE "RUNNING|QUEUED"; then
+              echo "Kernel started: $RAW"
+              STARTED=true
+              break
+            fi
+            if echo "$RAW" | grep -q "^COMPLETE$"; then
+              echo "Kernel completed."
+              STARTED=true
+              break
+            fi
+            sleep 30
+          done
+
+          if [ "$STARTED" = "false" ]; then
+            echo "Kernel never started."
+            exit 1
+          fi
+
+          # Poll for completion (up to 6 hours)
+          for i in $(seq 1 720); do
+            RAW=$(check_status)
+            if [ $((i % 10)) -eq 0 ]; then
+              echo "Poll $i/720: $RAW"
+            fi
+            if echo "$RAW" | grep -qiE "COMPLETE_EMPTY|ERROR|CANCEL"; then
+              echo "Kernel failed: $RAW"
+              exit 1
+            fi
+            if echo "$RAW" | grep -qiE "COMPLETE"; then
+              echo "Kernel completed successfully."
+              break
+            fi
+            sleep 30
+          done
+
+      - name: Restore kernel settings
+        if: always()
+        run: |
+          METADATA="${{ inputs.competition_dir }}/kernel-metadata.json"
+          python3 -c "
+          import json
+          with open('$METADATA') as f:
+              meta = json.load(f)
+          meta['enable_gpu'] = 'true'
+          meta['enable_tpu'] = 'false'
+          with open('$METADATA', 'w') as f:
+              json.dump(meta, f, indent=2)
+          "
+
+      - name: Show kernel diagnostics on failure
+        if: failure()
+        run: |
+          KERNEL_ID="${{ steps.config.outputs.kernel_id }}"
+          SLUG=$(echo "$KERNEL_ID" | cut -d'/' -f2)
+          mkdir -p ./kernel_log_out
+          kaggle kernels output "$KERNEL_ID" -p ./kernel_log_out || true
+          LOG_FILE="./kernel_log_out/${SLUG}.log"
+          if [ -f "$LOG_FILE" ]; then
+            echo "--- stdout (last 50 lines) ---"
+            python3 -c "import json; entries=json.load(open('$LOG_FILE')); lines=[e['data'] for e in entries if e.get('stream_name')=='stdout']; print(''.join(lines[-50:]),end='')" || true
+            echo ""
+            echo "--- stderr (last 30 lines) ---"
+            python3 -c "import json; entries=json.load(open('$LOG_FILE')); errs=[e['data'] for e in entries if e.get('stream_name')=='stderr']; print(''.join(errs[-30:]),end='')" || true
+          else
+            echo "No log file found."
+          fi
+
+      - name: Download kernel output
+        run: |
+          KERNEL_ID="${{ steps.config.outputs.kernel_id }}"
+          mkdir -p ./kaggle_output
+          kaggle kernels output "$KERNEL_ID" -p ./kaggle_output
+          echo "Downloaded files:"
+          find ./kaggle_output -type f -exec ls -lh {} \;
+
+      - name: Create GitHub Release with model
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ inputs.model_release_tag }}"
+          MODEL_TAR=$(find ./kaggle_output -name "model_*.tar.gz" | head -1)
+
+          if [ -z "$MODEL_TAR" ]; then
+            echo "ERROR: No model tar.gz found"
+            find ./kaggle_output -type f
+            exit 1
+          fi
+
+          SIZE=$(du -h "$MODEL_TAR" | cut -f1)
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          gh release create "$TAG" "$MODEL_TAR" \
+            --title "$TAG" \
+            --notes "**${{ inputs.memo }}**
+
+          - Accelerator: **TPU v3-8**
+          - Competition: ${{ inputs.competition_dir }}
+          - Model: ${{ steps.config.outputs.model_name }}
+          - Epochs: ${{ inputs.epochs }}
+          - LR: ${{ inputs.learning_rate }}
+          - Size: $SIZE
+          - Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Sync W&B offline runs
+        env:
+          WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+        run: |
+          WANDB_DIRS=$(find ./kaggle_output -type d -name "offline-run-*" 2>/dev/null)
+          if [ -z "$WANDB_DIRS" ]; then
+            echo "No W&B offline runs found."
+          else
+            for dir in $WANDB_DIRS; do
+              echo "Syncing: $dir"
+              wandb sync "$dir" || true
+            done
+          fi
+
+      - name: Notify Discord (success)
+        if: success()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"✅ **TPU学習完了**\nDir: \`${{ inputs.competition_dir }}\`\nModel: \`${{ inputs.model_release_tag }}\`\nAccelerator: TPU v3-8\nMemo: ${{ inputs.memo }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
+
+      - name: Notify Discord (failure)
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"❌ **TPU学習失敗**\nDir: \`${{ inputs.competition_dir }}\`\nMemo: ${{ inputs.memo }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
