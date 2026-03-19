@@ -312,8 +312,11 @@ jobs:
             echo "--- stdout (last 50 lines) ---"
             python3 -c "import json; entries=json.load(open('$LOG_FILE')); lines=[e['data'] for e in entries if e.get('stream_name')=='stdout']; print(''.join(lines[-50:]),end='')" || true
             echo ""
-            echo "--- stderr (last 30 lines) ---"
-            python3 -c "import json; entries=json.load(open('$LOG_FILE')); errs=[e['data'] for e in entries if e.get('stream_name')=='stderr']; print(''.join(errs[-30:]),end='')" || true
+            echo "--- stderr (first 50 lines) ---"
+            python3 -c "import json; entries=json.load(open('$LOG_FILE')); errs=[e['data'] for e in entries if e.get('stream_name')=='stderr']; print(''.join(errs[:50]),end='')" || true
+            echo ""
+            echo "--- stderr (last 80 lines) ---"
+            python3 -c "import json; entries=json.load(open('$LOG_FILE')); errs=[e['data'] for e in entries if e.get('stream_name')=='stderr']; print(''.join(errs[-80:]),end='')" || true
           else
             echo "No log file found."
           fi
