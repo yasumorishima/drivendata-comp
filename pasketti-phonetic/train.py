@@ -225,6 +225,53 @@ def get_cosine_lr(step, warmup_steps, total_steps, base_lr):
     return base_lr * 0.5 * (1.0 + math.cos(math.pi * progress))
 
 
+def dry_run(model_name: str = "facebook/wav2vec2-base"):
+    """Quick smoke test: 1 forward+backward pass with dummy data on CPU.
+    Catches import errors, dtype mismatches, shape errors before Kaggle push."""
+    print("=== DRY RUN: smoke test on CPU ===")
+    device = torch.device("cpu")
+
+    vocab = {"[PAD]": 0, "[UNK]": 1, "|": 2, "a": 3, "b": 4, "c": 5}
+    vocab_path = Path("/tmp/dry_run_vocab.json")
+    with open(vocab_path, "w") as f:
+        json.dump(vocab, f)
+
+    tokenizer = Wav2Vec2CTCTokenizer(
+        str(vocab_path), unk_token="[UNK]", pad_token="[PAD]", word_delimiter_token="|",
+    )
+    feature_extractor = Wav2Vec2FeatureExtractor(
+        feature_size=1, sampling_rate=SAMPLE_RATE, padding_value=0.0,
+        do_normalize=True, return_attention_mask=True,
+    )
+    processor = Wav2Vec2Processor(feature_extractor=feature_extractor, tokenizer=tokenizer)
+
+    model = Wav2Vec2ForCTC.from_pretrained(
+        model_name, ctc_loss_reduction="mean",
+        pad_token_id=processor.tokenizer.pad_token_id,
+        vocab_size=len(processor.tokenizer),
+    )
+    model.freeze_feature_encoder()
+    model.to(device)
+
+    # Dummy batch: 2 samples, 1 second of audio each
+    dummy_audio = torch.randn(2, SAMPLE_RATE)
+    attention_mask = torch.ones(2, SAMPLE_RATE, dtype=torch.long)
+    labels = torch.tensor([[3, 4, 2, 5], [3, 2, 4, 5]], dtype=torch.long)
+
+    # Forward + backward
+    outputs = model(input_values=dummy_audio, attention_mask=attention_mask, labels=labels)
+    loss = outputs.loss
+    loss.backward()
+
+    from jiwer import cer
+    pred_ids = torch.argmax(outputs.logits, dim=-1)
+    batch_cer = compute_cer_batch(pred_ids, labels, processor)
+
+    print(f"  Loss: {loss.item():.4f}, CER: {batch_cer:.4f}")
+    print("=== DRY RUN PASSED ===")
+    vocab_path.unlink(missing_ok=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, required=True)
@@ -438,4 +485,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--dry_run" in sys.argv:
+        dry_run()
+    else:
+        main()

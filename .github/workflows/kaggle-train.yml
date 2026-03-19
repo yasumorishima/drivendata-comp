@@ -51,6 +51,14 @@ jobs:
       - name: Install dependencies
         run: pip install kaggle wandb
 
+      - name: Dry-run smoke test (CPU)
+        run: |
+          cd ${{ inputs.competition_dir }}
+          pip install -q torch transformers librosa soundfile jiwer numpy
+          python train.py --dry_run
+          echo "Smoke test passed"
+        timeout-minutes: 5
+
       - name: Read competition config
         id: config
         run: |
