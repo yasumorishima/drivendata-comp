@@ -25,7 +25,12 @@ on:
         type: string
         default: "20"
       batch_size:
-        description: "Batch size per device (default: 16)"
+        description: "Batch size per device (default: 4)"
+        required: false
+        type: string
+        default: "4"
+      gradient_accumulation:
+        description: "Gradient accumulation steps (default: 16)"
         required: false
         type: string
         default: "16"
@@ -77,7 +82,7 @@ jobs:
           EPOCHS: ${{ inputs.epochs }}
           BATCH_SIZE: ${{ inputs.batch_size }}
           LEARNING_RATE: ${{ inputs.learning_rate }}
-          GRADIENT_ACCUMULATION: "4"
+          GRADIENT_ACCUMULATION: ${{ inputs.gradient_accumulation }}
           ARTIFACT_NAME: ${{ steps.config.outputs.artifact_name }}
           GH_REPO: ${{ github.repository }}
         run: |
@@ -240,11 +245,16 @@ jobs:
               result = api.kernels_status('$KERNEL_ID')
               if isinstance(result, str):
                   data = json.loads(result)
-              elif hasattr(result, 'status'):
-                  data = {'status': result.status}
-              else:
+              elif hasattr(result, '__dict__'):
                   data = json.loads(str(result))
-              print(data.get('status', 'UNKNOWN'))
+              else:
+                  data = {'status': str(result)}
+              status = data.get('status', 'UNKNOWN')
+              fail_msg = data.get('failureMessage', '')
+              if fail_msg:
+                  print(f'{status}|{fail_msg}')
+              else:
+                  print(status)
           except Exception as e:
               print(f'CHECK_ERROR: {e}')
           " 2>&1
