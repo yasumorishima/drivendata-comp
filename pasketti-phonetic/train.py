@@ -30,7 +30,7 @@ from transformers import (
 )
 
 SAMPLE_RATE = 16000
-MAX_DURATION_SEC = 25.0
+MAX_DURATION_SEC = 20.0
 
 # IPA normalization (from benchmark score.py)
 IPA_VALID_CHARS = set(
@@ -196,7 +196,7 @@ def compute_cer_batch(pred_ids, label_ids, processor):
     return cer(list(label_str), list(pred_str))
 
 
-def evaluate(model, dataloader, device, device_type, processor):
+def evaluate(model, dataloader, device, device_type, processor, use_bf16=False):
     """Run evaluation and return average CER."""
     model.eval()
     total_cer = 0.0
@@ -206,6 +206,8 @@ def evaluate(model, dataloader, device, device_type, processor):
             input_values = batch["input_values"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
+            if use_bf16:
+                input_values = input_values.to(torch.bfloat16)
             outputs = model(input_values=input_values, attention_mask=attention_mask)
             pred_ids = torch.argmax(outputs.logits, dim=-1)
             batch_cer = compute_cer_batch(pred_ids.cpu(), labels.cpu(), processor)
@@ -231,8 +233,8 @@ def main():
     parser.add_argument("--output_dir", type=str, default="model_phonetic")
     parser.add_argument("--model_name", type=str, default="facebook/wav2vec2-base")
     parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--batch_size", type=int, default=4)
-    parser.add_argument("--gradient_accumulation", type=int, default=16)
+    parser.add_argument("--batch_size", type=int, default=2)
+    parser.add_argument("--gradient_accumulation", type=int, default=32)
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--warmup_steps", type=int, default=500)
     parser.add_argument("--eval_steps", type=int, default=1000)
@@ -311,6 +313,11 @@ def main():
     # Disable gradient checkpointing on TPU (torch.utils.checkpoint uses getattr(torch, "xla") which fails)
     if device_type == "tpu" and hasattr(model, "gradient_checkpointing_disable"):
         model.gradient_checkpointing_disable()
+    # Use bf16 on TPU (native format for TPU v3, halves memory)
+    use_bf16 = device_type == "tpu"
+    if use_bf16:
+        model = model.to(torch.bfloat16)
+        print("Using bfloat16 for TPU")
     model = model.to(device)
     print(f"Model moved to {device}")
 
@@ -344,6 +351,8 @@ def main():
             input_values = batch["input_values"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
+            if use_bf16:
+                input_values = input_values.to(torch.bfloat16)
 
             outputs = model(
                 input_values=input_values,
@@ -381,7 +390,7 @@ def main():
 
                 # Eval + checkpoint
                 if global_step % args.eval_steps == 0:
-                    cer_score = evaluate(model, val_loader, device, device_type, processor)
+                    cer_score = evaluate(model, val_loader, device, device_type, processor, use_bf16)
                     print(f"  [Eval] Step {global_step} | CER: {cer_score:.4f}")
                     wandb.log({"eval/cer": cer_score, "eval/step": global_step})
 
@@ -411,7 +420,7 @@ def main():
 
     # Final evaluation
     print("=== Final evaluation ===")
-    final_cer = evaluate(model, val_loader, device, device_type, processor)
+    final_cer = evaluate(model, val_loader, device, device_type, processor, use_bf16)
     print(f"Final CER: {final_cer:.4f} (Best: {best_cer:.4f})")
     wandb.log({"final_cer": final_cer, "best_cer": best_cer})
 
