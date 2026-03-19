@@ -132,17 +132,21 @@ pathlib.Path("train.py").write_bytes(base64.b64decode(train_b64))
 print(f"train.py written ({{pathlib.Path('train.py').stat().st_size}} bytes)")
 """)
 
-add_code(f"""# Train (subprocess — Trainer removed, raw torch_xla loop should work)
-!python train.py \\
-    --data_dir data/phonetic \\
-    --output_dir /kaggle/working/model_phonetic \\
-    --model_name {MODEL_NAME} \\
-    --epochs {EPOCHS} \\
-    --batch_size {BATCH_SIZE} \\
-    --gradient_accumulation {GRADIENT_ACCUMULATION} \\
-    --lr {LEARNING_RATE} \\
-    --wandb_project drivendata-phonetic-asr \\
-    --memo "{RUN_MEMO}"
+add_code(f"""# Train (runpy — same process, isolated namespace, shares TPU device)
+import sys, runpy
+sys.argv = [
+    "train.py",
+    "--data_dir", "data/phonetic",
+    "--output_dir", "/kaggle/working/model_phonetic",
+    "--model_name", "{MODEL_NAME}",
+    "--epochs", "{EPOCHS}",
+    "--batch_size", "{BATCH_SIZE}",
+    "--gradient_accumulation", "{GRADIENT_ACCUMULATION}",
+    "--lr", "{LEARNING_RATE}",
+    "--wandb_project", "drivendata-phonetic-asr",
+    "--memo", "{RUN_MEMO}",
+]
+runpy.run_path("train.py", run_name="__main__")
 """)
 
 add_code("""# Check output
