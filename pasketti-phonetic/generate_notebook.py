@@ -132,8 +132,8 @@ pathlib.Path("train.py").write_bytes(base64.b64decode(train_b64))
 print(f"train.py written ({{pathlib.Path('train.py').stat().st_size}} bytes)")
 """)
 
-add_code(f"""# Train
-!python train.py \\
+add_code(f"""# Train (use %run to stay in same process — required for TPU PJRT device access)
+%run train.py \\
     --data_dir data/phonetic \\
     --output_dir /kaggle/working/model_phonetic \\
     --model_name {MODEL_NAME} \\
