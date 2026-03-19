@@ -308,6 +308,9 @@ def main():
         vocab_size=len(processor.tokenizer),
     )
     model.freeze_feature_encoder()
+    # Disable gradient checkpointing on TPU (torch.utils.checkpoint uses getattr(torch, "xla") which fails)
+    if device_type == "tpu" and hasattr(model, "gradient_checkpointing_disable"):
+        model.gradient_checkpointing_disable()
     model = model.to(device)
     print(f"Model moved to {device}")
 
