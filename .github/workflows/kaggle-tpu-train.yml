@@ -181,12 +181,36 @@ jobs:
                       insert_idx = i + 1
                       break
 
+          # Auto-disable gradient checkpointing on TPU
+          # torch.utils.checkpoint calls getattr(torch, "xla") which crashes on TPU.
+          # Monkey-patch Module.to() so any model moved to TPU device gets it disabled.
+          gc_patch_cell = {
+              "cell_type": "code",
+              "metadata": {},
+              "source": [
+                  "# TPU fix: auto-disable gradient checkpointing\n",
+                  "# torch.utils.checkpoint uses getattr(torch, 'xla') which crashes on TPU\n",
+                  "import torch\n",
+                  "_orig_to = torch.nn.Module.to\n",
+                  "def _patched_to(self, *args, **kwargs):\n",
+                  "    result = _orig_to(self, *args, **kwargs)\n",
+                  "    if hasattr(result, 'gradient_checkpointing_disable'):\n",
+                  "        result.gradient_checkpointing_disable()\n",
+                  "    return result\n",
+                  "torch.nn.Module.to = _patched_to\n",
+                  "print('TPU: auto gradient_checkpointing_disable() patch applied')\n",
+              ],
+              "execution_count": None,
+              "outputs": [],
+          }
+
           nb["cells"].insert(insert_idx, tpu_cell)
+          nb["cells"].insert(insert_idx + 1, gc_patch_cell)
 
           with open("${{ inputs.competition_dir }}/train_kaggle.ipynb", "w") as f:
               json.dump(nb, f, indent=1, ensure_ascii=False)
 
-          print(f"Injected TPU setup cell at position {insert_idx}")
+          print(f"Injected TPU setup + gradient_checkpointing patch at position {insert_idx}")
           PYEOF
 
       - name: Setup Kaggle credentials
