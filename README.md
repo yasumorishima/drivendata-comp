@@ -145,6 +145,19 @@ gh workflow run "Package DrivenData Submission" \
 - pip installで `transformers[torch]` ではなく `transformers` を使用（`[torch]` extraがtorchを上書きしてPyTreeSpec互換性を壊す）
 - HuggingFace TrainerはTPUを自動検出
 
+### Pre-push Smoke Test (dry-run)
+
+GPU/TPUワークフローはKaggle pushの前にCPU上でdry-runを実行する。ダミーデータで1回forward+backwardし、import・dtype・shape エラーを30秒で検出する。
+
+```bash
+# ローカルでも実行可能
+python train.py --dry_run
+```
+
+- `train.py` に `dry_run()` 関数を実装（ダミー vocab + 1秒音声 × 2サンプル）
+- ワークフローの `Dry-run smoke test (CPU)` ステップで自動実行
+- **新しい train.py を作る際は必ず `--dry_run` 対応を入れる**
+
 ### Checkpoint Resume（セッション切れ対策）
 
 - 200ステップごとにチェックポイント保存
@@ -190,6 +203,7 @@ drivendata-comp/
 - [x] CDP keepalive: Chrome DevTools Protocol via systemd (replaces xdotool)
 - [x] Kaggle TPU v3-8 training workflow (GPU枠とは別枠で学習可能)
 - [x] Checkpoint resume with Drive flush (200 steps保存、os.sync()で即flush)
+- [x] Pre-push dry-run smoke test (CPU上でdtype/shape/importエラーを事前検出)
 - [ ] Phonetic wav2vec2-base CTC — TPU v3-8で学習中 (Run 23271077983, 3/19)
 - [ ] Phonetic child-exp001 (wav2vec2-large-xlsr-53) — OOM修正済み、exp000後に実行
 - [ ] Package Submission → first DrivenData submission (CER score)
