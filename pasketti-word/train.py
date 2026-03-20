@@ -144,7 +144,7 @@ def create_adapter_config(output_dir: Path, config: dict) -> Path:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, required=True, help="Path to word track data")
+    parser.add_argument("--data_dir", type=str, default="", help="Path to word track data")
     parser.add_argument("--output_dir", type=str, default="model_word", help="Model output directory")
     parser.add_argument("--model_name", type=str, default="nvidia/parakeet-tdt-0.6b-v2")
     parser.add_argument("--adapter_dim", type=int, default=32)
@@ -155,11 +155,24 @@ def main():
     parser.add_argument("--train_split", type=float, default=0.8)
     parser.add_argument("--wandb_project", type=str, default="drivendata-word-asr")
     parser.add_argument("--memo", type=str, default="local")
+    parser.add_argument("--export_only", action="store_true",
+                        help="Export pretrained model as .nemo without training")
     args = parser.parse_args()
 
-    data_dir = Path(args.data_dir)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Export-only mode: download pretrained model and save as .nemo
+    if args.export_only:
+        print(f"=== Export-only mode: {args.model_name} ===")
+        import nemo.collections.asr as nemo_asr
+        asr_model = nemo_asr.models.ASRModel.from_pretrained(args.model_name)
+        model_save_path = output_dir / "final_model.nemo"
+        asr_model.save_to(str(model_save_path))
+        print(f"Model saved: {model_save_path} ({model_save_path.stat().st_size / 1024 / 1024:.1f} MB)")
+        return
+
+    data_dir = Path(args.data_dir)
 
     # Unzip audio and noise files
     print("=== Extracting audio ===")

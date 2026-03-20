@@ -34,6 +34,11 @@ on:
         required: false
         type: string
         default: "5e-5"
+      export_only:
+        description: "Export pretrained model without training (default: false)"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   train:
@@ -90,6 +95,7 @@ jobs:
           GRADIENT_ACCUMULATION: "4"
           ARTIFACT_NAME: ${{ steps.config.outputs.artifact_name }}
           GH_REPO: ${{ github.repository }}
+          EXPORT_ONLY: ${{ inputs.export_only }}
         run: |
           cd "${{ inputs.competition_dir }}"
           python generate_notebook.py

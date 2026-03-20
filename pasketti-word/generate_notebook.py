@@ -26,6 +26,7 @@ GRADIENT_ACCUMULATION = os.environ.get("GRADIENT_ACCUMULATION", "4")
 LEARNING_RATE = os.environ.get("LEARNING_RATE", "1e-3")
 ARTIFACT_NAME = os.environ.get("ARTIFACT_NAME", "drivendata-word-data")
 GH_REPO = os.environ.get("GH_REPO", "yasumorishima/drivendata-comp")
+EXPORT_ONLY = os.environ.get("EXPORT_ONLY", "false").lower() == "true"
 
 cells = []
 
@@ -69,7 +70,33 @@ if torch.cuda.is_available():
     print(f"VRAM: {torch.cuda.get_device_properties(0).total_mem / 1024**3:.1f} GB")
 """)
 
-add_code(f"""# Download data from GitHub Artifact
+# Embed train.py inline via base64
+train_py_path = os.path.join(os.path.dirname(__file__) or ".", "train.py")
+with open(train_py_path, "rb") as f:
+    train_b64 = base64.b64encode(f.read()).decode()
+
+add_code(f"""# Write train.py from embedded base64
+import base64, pathlib
+train_b64 = "{train_b64}"
+pathlib.Path("train.py").write_bytes(base64.b64decode(train_b64))
+print(f"train.py written ({{pathlib.Path('train.py').stat().st_size}} bytes)")
+""")
+
+if EXPORT_ONLY:
+    # Export mode: just download pretrained model, no data needed
+    add_code(f"""# Export pretrained model (no training)
+import sys, runpy
+sys.argv = [
+    "train.py",
+    "--output_dir", "/kaggle/working/model_word",
+    "--model_name", "{MODEL_NAME}",
+    "--export_only",
+]
+runpy.run_path("train.py", run_name="__main__")
+""")
+else:
+    # Full training mode: download data, extract, train
+    add_code(f"""# Download data from GitHub Artifact
 import requests, io, zipfile, os
 
 GH_PAT = os.environ["GH_PAT"]
@@ -97,7 +124,6 @@ resp = requests.get(artifact["archive_download_url"], headers=headers, stream=Tr
 resp.raise_for_status()
 
 # Stream to temp file to avoid OOM
-import tempfile
 tmp_path = "/tmp/word_data.zip"
 downloaded = 0
 with open(tmp_path, "wb") as f:
@@ -120,7 +146,7 @@ for f in sorted(os.listdir("data/word"))[:20]:
     print(f"  {{f}} ({{size:.1f}} MB)")
 """)
 
-add_code("""# Extract audio ZIP files
+    add_code("""# Extract audio ZIP files
 import zipfile
 from pathlib import Path
 
@@ -138,19 +164,7 @@ print(f"\\nTotal transcripts: {len(transcripts)}")
 print(f"Sample: {transcripts[0]}")
 """)
 
-# Embed train.py inline via base64
-train_py_path = os.path.join(os.path.dirname(__file__) or ".", "train.py")
-with open(train_py_path, "rb") as f:
-    train_b64 = base64.b64encode(f.read()).decode()
-
-add_code(f"""# Write train.py from embedded base64
-import base64, pathlib
-train_b64 = "{train_b64}"
-pathlib.Path("train.py").write_bytes(base64.b64decode(train_b64))
-print(f"train.py written ({{pathlib.Path('train.py').stat().st_size}} bytes)")
-""")
-
-add_code(f"""# Train
+    add_code(f"""# Train
 import sys, runpy
 sys.argv = [
     "train.py",
