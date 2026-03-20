@@ -53,9 +53,13 @@ def main():
     asr_model = nemo_asr.models.ASRModel.restore_from(str(MODEL_PATH), map_location=device)
     asr_model.eval()
 
-    # Enable adapter if present
+    # Enable adapter if present (baseline model has no adapter — skip gracefully)
     if hasattr(asr_model, "set_enabled_adapters"):
-        asr_model.set_enabled_adapters(["linear_adapter"])
+        try:
+            asr_model.set_enabled_adapters(["linear_adapter"])
+            print("Adapter enabled: linear_adapter")
+        except Exception:
+            print("No adapter found, using base model")
 
     patch_transcribe_lhotse(asr_model)
 
