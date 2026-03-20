@@ -122,28 +122,45 @@ def prepare_dataset(
 
 
 class AudioDataset(torch.utils.data.Dataset):
-    def __init__(self, data: list[dict]):
+    """Dataset with pre-loaded audio to avoid CPU I/O during training."""
+
+    def __init__(self, data: list[dict], processor, sample_rate=SAMPLE_RATE, preload=False):
         self.data = data
+        self.processor = processor
+        self.sample_rate = sample_rate
+        self.cache = {}
+        if preload:
+            print(f"  Pre-loading {len(data)} audio files...")
+            for i, d in enumerate(data):
+                self._load(i)
+                if (i + 1) % 1000 == 0:
+                    print(f"    {i + 1}/{len(data)} loaded")
+            print(f"  Pre-load complete")
+
+    def _load(self, idx):
+        if idx in self.cache:
+            return self.cache[idx]
+        d = self.data[idx]
+        speech, sr = sf.read(d["audio_path"])
+        if sr != self.sample_rate:
+            speech = librosa.resample(speech, orig_sr=sr, target_sr=self.sample_rate)
+        inputs = self.processor(speech, sampling_rate=self.sample_rate, return_tensors="pt")
+        input_values = inputs.input_values.squeeze(0)
+        labels = self.processor.tokenizer(d["text"], return_tensors="pt").input_ids.squeeze(0)
+        self.cache[idx] = (input_values, labels)
+        return input_values, labels
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        return self.data[idx]
+        return self._load(idx)
 
 
-def collate_fn(features, processor, sample_rate=SAMPLE_RATE):
-    """Collate batch: load audio, tokenize text, pad."""
-    input_values_list = []
-    labels_list = []
-    for feat in features:
-        speech, sr = sf.read(feat["audio_path"])
-        if sr != sample_rate:
-            speech = librosa.resample(speech, orig_sr=sr, target_sr=sample_rate)
-        inputs = processor(speech, sampling_rate=sample_rate, return_tensors="pt")
-        input_values_list.append(inputs.input_values.squeeze(0))
-        labels = processor.tokenizer(feat["text"], return_tensors="pt")
-        labels_list.append(labels.input_ids.squeeze(0))
+def collate_fn(features, processor=None, sample_rate=SAMPLE_RATE):
+    """Collate batch: pad pre-loaded tensors."""
+    input_values_list = [f[0] for f in features]
+    labels_list = [f[1] for f in features]
 
     max_input_len = max(iv.shape[0] for iv in input_values_list)
     padded_inputs = torch.zeros(len(input_values_list), max_input_len)
@@ -333,17 +350,17 @@ def main():
     val_data = [dataset[i] for i in indices[split_idx:]]
     print(f"Train: {len(train_data)}, Val: {len(val_data)}")
 
-    train_dataset = AudioDataset(train_data)
-    val_dataset = AudioDataset(val_data)
+    print("=== Pre-loading audio ===")
+    train_dataset = AudioDataset(train_data, processor, preload=True)
+    val_dataset = AudioDataset(val_data, processor, preload=True)
 
-    collate = lambda batch: collate_fn(batch, processor)
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True,
-        collate_fn=collate, num_workers=0, drop_last=True,
+        collate_fn=collate_fn, num_workers=0, drop_last=True,
     )
     val_loader = torch.utils.data.DataLoader(
         val_dataset, batch_size=args.batch_size, shuffle=False,
-        collate_fn=collate, num_workers=0,
+        collate_fn=collate_fn, num_workers=0,
     )
 
     # Load model
@@ -399,6 +416,11 @@ def main():
             )
             loss = outputs.loss / args.gradient_accumulation
             loss.backward()
+
+            # Mark step every batch to prevent TPU idle timeout
+            if device_type == "tpu":
+                import torch_xla.core.xla_model as xm
+                xm.mark_step()
 
             if (batch_idx + 1) % args.gradient_accumulation == 0:
                 # Gradient clipping
