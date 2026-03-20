@@ -21,66 +21,31 @@ Children's speech differs significantly from adult speech (pronunciation errors,
 
 ### Approach
 
-**Phonetic Track (in progress)**
-- Base model: `facebook/wav2vec2-base` / `facebook/wav2vec2-large-xlsr-53` with CTC head
+**Phonetic Track (TPU training in progress)**
+- Base model: `facebook/wav2vec2-base` with CTC head
 - IPA vocabulary built from training transcripts (100+ IPA characters)
-- Cosine LR decay + gradient accumulation
-- Checkpoint resume: session切れでも途中から再開可能
+- Raw PyTorch training loop (HuggingFace Trainer incompatible with TPU PJRT)
+- Kaggle TPU v3-8 with bf16, gradient checkpointing disabled (torch_xla crash workaround)
 
-**Word Track (planned)**
-- Base model: NVIDIA Parakeet TDT 0.6B
-- Noise augmentation using provided classroom noise samples
+**Word Track (baseline export in progress)**
+- Base model: NVIDIA Parakeet TDT 0.6B (NeMo)
+- Linear adapter fine-tuning (freeze base, train adapter only)
+- Baseline: pretrained model export without fine-tuning (WER ~0.164)
+- Noise augmentation using provided classroom noise samples (planned)
 
 ---
 
 ## Pipeline Overview
 
-### Experiment Iteration (Colab GPU)
+### Training & Submission (GitHub Actions + Kaggle GPU/TPU)
 
 ```
-[Local PC]                  [RPi5 (xrdp)]               [Google Colab (Free)]
-Claude Code                 Remote Desktop session       Experiment Runner v4
-  ↓ Write config to Drive     ↓ RDP for OAuth/setup        ↓ Monitor Drive for configs
-  ↓                          ↓ Session persists on DC      ↓ Download data (GH Artifact → local)
-Google Drive (for Desktop) ←――――――――――――――――――→ Google Drive (mount)
-  EXP/config/child-exp005.yaml                          Detect config → setup_data.py → train.py
-  EXP/output/child-exp005/result.json                   Results saved to Drive
+Download Data (Playwright) → Kaggle GPU/TPU Train → GitHub Release → Package ZIP → Submit
 ```
 
-- Training data is downloaded to Colab local storage (ephemeral, not Drive) to save quota
-- RPi5 xrdp allows manual OAuth/2FA approval; RDP session persists after disconnect
-- CDP keepalive (systemd) executes JS via Chrome DevTools Protocol every 20 min to prevent Colab idle timeout
-- Claude Code session can be closed while GPU training runs
-- Same methodology as [kaggle-competitions](https://github.com/yasumorishima/kaggle-competitions#-experiment-management-exp--child-exp)
-
-### Final Training & Submission (GitHub Actions + Kaggle GPU)
-
-```
-Download Data (Playwright) → Kaggle P100 Train → GitHub Release → Package ZIP → Submit
-```
-
-- Best config from Colab experiments → full training on Kaggle GPU
 - GPU→CPU auto-fallback on quota/OOM/CUDA errors
 - `COMPLETE_EMPTY` (no output) treated as failure
-
-### Drive Structure
-
-```
-Google Drive/kaggle/
-├── runner/
-│   └── experiment_runner_v4.ipynb  # v4.1: multi-comp, real-time logging, GPU check, heartbeat
-└── pasketti/
-    ├── requirements.txt         # ASR deps (librosa, soundfile, jiwer)
-    ├── setup_data.py            # Downloads data from GH Artifact to Colab local
-    └── EXP/
-        ├── requirements.txt     # Copy for runner discovery
-        └── EXP001/
-            ├── train.py         # Wav2Vec2 CTC fine-tuning
-            ├── config/
-            │   ├── child-exp000.yaml   # wav2vec2-base (batch=16, grad_accum=4)
-            │   └── child-exp001.yaml   # wav2vec2-large-xlsr-53 (batch=2, grad_accum=32)
-            └── output/          # Results (result.json, train.log, checkpoints)
-```
+- Export-only mode: download pretrained model without training for baseline submission
 
 ## Workflows
 
@@ -112,6 +77,13 @@ gh workflow run "DrivenData TPU Train (Kaggle)" \
   -f model_release_tag=phonetic-tpu-v1 \
   -f memo="wav2vec2-base CTC on TPU v3-8"
 
+# 2c. Export pretrained model without training (baseline)
+gh workflow run "DrivenData GPU Train (Kaggle)" \
+  -f competition_dir=pasketti-word \
+  -f model_release_tag=word-baseline-v1 \
+  -f memo="Parakeet TDT pretrained baseline" \
+  -f export_only=true
+
 # 3. Package for submission
 gh workflow run "Package DrivenData Submission" \
   -f competition_dir=pasketti-phonetic \
@@ -121,22 +93,12 @@ gh workflow run "Package DrivenData Submission" \
 
 ## Training Flows
 
-3つの学習環境を使い分ける。GPU/TPU枠は別カウントなので、一方が切れてももう一方で学習可能。
+GPU/TPU枠は別カウント。一方が切れてももう一方で学習可能。
 
 | Flow | Accelerator | Use Case | Quota |
 |---|---|---|---|
-| **Kaggle GPU** | P100 | 本番学習 | 週30h（土曜リセット） |
+| **Kaggle GPU** | P100 | 本番学習 / モデルエクスポート | 週30h（土曜リセット） |
 | **Kaggle TPU** | TPU v3-8 (128GB HBM, bf16) | GPU枠切れ時の代替 | 週30h（GPU枠とは別） |
-| **Colab GPU** | T4 (RPi5経由) | 実験イテレーション | 1日数時間（12-24hリセット） |
-
-```
-学習したい
-  ├── 実験イテレーション → Colab GPU（EXP + child-exp）
-  ├── 本番学習
-  │   ├── Kaggle GPU枠あり → DrivenData GPU Train (Kaggle)
-  │   ├── GPU枠切れ、TPU枠あり → DrivenData TPU Train (Kaggle)
-  │   └── 両方切れ → 翌日待ち
-```
 
 ### TPU Training Notes
 
@@ -158,25 +120,17 @@ python train.py --dry_run
 - ワークフローの `Dry-run smoke test (CPU)` ステップで自動実行
 - **新しい train.py を作る際は必ず `--dry_run` 対応を入れる**
 
-### Checkpoint Resume（セッション切れ対策）
-
-- 200ステップごとにチェックポイント保存
-- 保存直後に `os.sync()` で Google Drive に即flush
-- 次回起動時、最新チェックポイントから自動再開
-- `save_total_limit=3`（直近3世代保持）
-
 ## Tech Stack
 
 | Component | Technology |
 |---|---|
-| Training | PyTorch + HuggingFace Transformers |
-| ASR Model | Wav2Vec2 (CTC) / Parakeet TDT (planned) |
-| Accelerator | Colab T4 (iteration) / Kaggle P100 (GPU) / Kaggle TPU v3-8 |
+| Training | PyTorch + HuggingFace Transformers / NeMo |
+| ASR Model | Wav2Vec2 (CTC) / Parakeet TDT 0.6B (NeMo) |
+| Accelerator | Kaggle P100 (GPU) / Kaggle TPU v3-8 |
 | CI/CD | GitHub Actions |
 | Experiment Tracking | W&B (offline sync) |
 | Notifications | Discord Webhook |
 | Data Download | Playwright (headless browser) |
-| Session Keepalive | RPi5 + xrdp + Chromium CDP (Chrome DevTools Protocol) |
 
 ## Project Structure
 
@@ -190,7 +144,11 @@ drivendata-comp/
 │   ├── main.py               # Inference script (DrivenData runtime)
 │   ├── generate_notebook.py  # Embeds train.py into Kaggle notebook
 │   └── kernel-metadata.json
-├── pasketti-word/            # Word Track (TBD)
+├── pasketti-word/            # Word Track: Parakeet TDT 0.6B + Adapter
+│   ├── train.py              # Training script (--export_only for baseline)
+│   ├── main.py               # Inference script (DrivenData runtime)
+│   ├── generate_notebook.py  # Embeds train.py into Kaggle notebook
+│   └── kernel-metadata.json
 ├── scripts/                  # Utility scripts
 └── DRIVENDATA_MEMO.md        # Internal operation notes
 ```
@@ -202,13 +160,13 @@ drivendata-comp/
 - [x] Runner v4.1: real-time logging, GPU enforcement, GH_TOKEN Drive fallback, heartbeat
 - [x] CDP keepalive: Chrome DevTools Protocol via systemd (replaces xdotool)
 - [x] Kaggle TPU v3-8 training workflow (GPU枠とは別枠で学習可能)
-- [x] Checkpoint resume with Drive flush (200 steps保存、os.sync()で即flush)
 - [x] Pre-push dry-run smoke test (CPU上でdtype/shape/importエラーを事前検出)
-- [ ] Phonetic wav2vec2-base CTC — TPU v3-8で学習中 (Run 23271077983, 3/19)
-- [ ] Phonetic child-exp001 (wav2vec2-large-xlsr-53) — OOM修正済み、exp000後に実行
-- [ ] Package Submission → first DrivenData submission (CER score)
+- [x] Word Track pipeline: kernel-metadata + generate_notebook + export_only mode
+- [ ] Phonetic wav2vec2-base CTC — TPU v3-8で学習中 (v27)
+- [ ] Word Track baseline — pretrained Parakeet TDT export中
+- [ ] Package Submission → first DrivenData submission (both tracks)
 - [ ] Phonetic improvements: data augmentation, pyctcdecode LM
-- [ ] Word Track: Parakeet TDT 0.6B (17.3GB audio data)
+- [ ] Word Track: adapter fine-tuning with noise augmentation
 
 ## Profile
 
