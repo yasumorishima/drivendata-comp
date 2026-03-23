@@ -22,7 +22,11 @@ import librosa
 import numpy as np
 import soundfile as sf
 import torch
-import wandb
+try:
+    import wandb
+    HAS_WANDB = bool(os.environ.get("WANDB_API_KEY"))
+except ImportError:
+    HAS_WANDB = False
 from transformers import (
     Wav2Vec2CTCTokenizer,
     Wav2Vec2FeatureExtractor,
@@ -510,10 +514,14 @@ def main():
         print(f"  Resuming from epoch={start_epoch}, step={global_step}, best_cer={best_cer:.4f}")
 
     # W&B
-    wandb_kwargs = {"project": args.wandb_project, "name": args.memo, "config": vars(args)}
-    if resume_state:
-        wandb_kwargs["resume"] = "allow"
-    run = wandb.init(**wandb_kwargs)
+    run = None
+    if HAS_WANDB:
+        wandb_kwargs = {"project": args.wandb_project, "name": args.memo, "config": vars(args)}
+        if resume_state:
+            wandb_kwargs["resume"] = "allow"
+        run = wandb.init(**wandb_kwargs)
+    else:
+        print("  W&B disabled (no WANDB_API_KEY)")
 
     # Training loop
     print(f"=== Training ({args.epochs} epochs, {total_steps} steps) ===")
@@ -577,7 +585,8 @@ def main():
                 if global_step % 100 == 0:
                     elapsed = time.time() - t0
                     print(f"  Step {global_step}/{total_steps} | Loss: {loss.item() * args.gradient_accumulation:.4f} | LR: {lr:.2e} | {elapsed:.0f}s")
-                    wandb.log({"train/loss": loss.item() * args.gradient_accumulation, "train/lr": lr, "train/step": global_step})
+                    if run:
+                        wandb.log({"train/loss": loss.item() * args.gradient_accumulation, "train/lr": lr, "train/step": global_step})
                     log_gpu_memory(f"step {global_step}")
                     gc.collect()
                     if device_type == "gpu":
@@ -594,7 +603,8 @@ def main():
                 if global_step % args.eval_steps == 0:
                     cer_score = evaluate(model, val_loader, device, device_type, processor)
                     print(f"  [Eval] Step {global_step} | CER: {cer_score:.4f}")
-                    wandb.log({"eval/cer": cer_score, "eval/step": global_step})
+                    if run:
+                        wandb.log({"eval/cer": cer_score, "eval/step": global_step})
 
                     if cer_score < best_cer:
                         best_cer = cer_score
@@ -622,7 +632,8 @@ def main():
     print("=== Final evaluation ===")
     final_cer = evaluate(model, val_loader, device, device_type, processor)
     print(f"Final CER: {final_cer:.4f} (Best: {best_cer:.4f})")
-    wandb.log({"final_cer": final_cer, "best_cer": best_cer})
+    if run:
+        wandb.log({"final_cer": final_cer, "best_cer": best_cer})
 
     # Save final model (use best if available)
     print("=== Saving model ===")
@@ -654,7 +665,8 @@ def main():
         os.sync() if hasattr(os, "sync") else None
         print(f"Final model saved to Drive: {drive_final}")
 
-    run.finish()
+    if run:
+        run.finish()
 
 
 if __name__ == "__main__":
