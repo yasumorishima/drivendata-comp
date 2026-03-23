@@ -25,10 +25,10 @@ on:
         type: string
         default: "20"
       batch_size:
-        description: "Batch size (default: 16)"
+        description: "Batch size (default: 8, auto-reduced by train.py if VRAM insufficient)"
         required: false
         type: string
-        default: "16"
+        default: "8"
       learning_rate:
         description: "Learning rate (default: 5e-5)"
         required: false
@@ -92,7 +92,7 @@ jobs:
           EPOCHS: ${{ inputs.epochs }}
           BATCH_SIZE: ${{ inputs.batch_size }}
           LEARNING_RATE: ${{ inputs.learning_rate }}
-          GRADIENT_ACCUMULATION: "4"
+          GRADIENT_ACCUMULATION: "8"
           ARTIFACT_NAME: ${{ steps.config.outputs.artifact_name }}
           GH_REPO: ${{ github.repository }}
           EXPORT_ONLY: ${{ inputs.export_only }}

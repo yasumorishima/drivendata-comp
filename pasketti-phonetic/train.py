@@ -5,6 +5,7 @@ No HuggingFace Trainer dependency (avoids TPU PJRT compatibility issues).
 """
 
 import argparse
+import gc
 import json
 import math
 import os
@@ -28,6 +29,9 @@ from transformers import (
     Wav2Vec2ForCTC,
     Wav2Vec2Processor,
 )
+
+# Prevent tokenizer parallelism deadlock
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 SAMPLE_RATE = 16000
 MAX_DURATION_SEC = 20.0
@@ -193,10 +197,35 @@ def get_device():
             print(f"TPU init failed: {e}, falling back")
     if torch.cuda.is_available():
         device = torch.device("cuda")
-        print(f"Device: GPU ({torch.cuda.get_device_name(0)})")
+        vram_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2
+        print(f"Device: GPU ({torch.cuda.get_device_name(0)}, {vram_mb:.0f}MB VRAM)")
         return device, "gpu"
     print("Device: CPU")
     return torch.device("cpu"), "cpu"
+
+
+def get_safe_batch_size(requested: int, model_name: str, device_type: str) -> int:
+    """Auto-reduce batch size based on available VRAM and model size."""
+    if device_type != "gpu":
+        return requested
+    vram_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2
+    is_large = any(k in model_name.lower() for k in ["large", "xlsr", "1b", "600m"])
+    if is_large:
+        max_safe = 2 if vram_mb < 16000 else 4
+    else:
+        max_safe = 8 if vram_mb < 16000 else 16
+    result = min(requested, max_safe)
+    if result != requested:
+        print(f"  Batch size auto-reduced: {requested} -> {result} (VRAM={vram_mb:.0f}MB)")
+    return result
+
+
+def log_gpu_memory(prefix: str = ""):
+    """Log current GPU memory usage."""
+    if torch.cuda.is_available():
+        alloc = torch.cuda.memory_allocated() / 1024**2
+        reserved = torch.cuda.memory_reserved() / 1024**2
+        print(f"  [GPU mem{' ' + prefix if prefix else ''}] alloc={alloc:.0f}MB reserved={reserved:.0f}MB")
 
 
 def compute_cer_batch(pred_ids, label_ids, processor):
@@ -266,6 +295,7 @@ def dry_run(model_name: str = "facebook/wav2vec2-base"):
         model_name, ctc_loss_reduction="mean",
         pad_token_id=processor.tokenizer.pad_token_id,
         vocab_size=len(processor.tokenizer),
+        mask_time_prob=0.0,
     )
     model.freeze_feature_encoder()
     model.to(device)
@@ -363,6 +393,14 @@ def main():
         collate_fn=collate_fn, num_workers=0,
     )
 
+    # Auto-adjust batch size for GPU safety
+    args.batch_size = get_safe_batch_size(args.batch_size, args.model_name, device_type)
+    # Auto-adjust gradient accumulation to preserve effective batch size
+    effective_target = 64  # reasonable default
+    if args.batch_size * args.gradient_accumulation < effective_target:
+        args.gradient_accumulation = max(1, effective_target // args.batch_size)
+    print(f"  Effective batch: {args.batch_size} x {args.gradient_accumulation} = {args.batch_size * args.gradient_accumulation}")
+
     # Load model
     print(f"=== Loading model: {args.model_name} ===")
     model = Wav2Vec2ForCTC.from_pretrained(
@@ -370,12 +408,19 @@ def main():
         ctc_loss_reduction="mean",
         pad_token_id=processor.tokenizer.pad_token_id,
         vocab_size=len(processor.tokenizer),
+        # Prevent crash on short audio segments
+        mask_time_prob=0.0,
     )
     model.freeze_feature_encoder()
-    # Disable gradient checkpointing on TPU (torch.utils.checkpoint uses getattr(torch, "xla") which fails)
+    # Gradient checkpointing: enable on GPU (saves ~40% VRAM), disable on TPU (incompatible)
     if device_type == "tpu" and hasattr(model, "gradient_checkpointing_disable"):
         model.gradient_checkpointing_disable()
+        print("  Gradient checkpointing: DISABLED (TPU)")
+    elif device_type == "gpu":
+        model.gradient_checkpointing_enable()
+        print("  Gradient checkpointing: ENABLED (saves ~40% VRAM)")
     model = model.to(device)
+    log_gpu_memory("after model load")
     print(f"Model moved to {device}")
 
     # Optimizer
@@ -442,11 +487,15 @@ def main():
                 global_step += 1
                 epoch_loss += loss.item() * args.gradient_accumulation
 
-                # Logging
+                # Logging + periodic GC
                 if global_step % 100 == 0:
                     elapsed = time.time() - t0
                     print(f"  Step {global_step}/{total_steps} | Loss: {loss.item() * args.gradient_accumulation:.4f} | LR: {lr:.2e} | {elapsed:.0f}s")
                     wandb.log({"train/loss": loss.item() * args.gradient_accumulation, "train/lr": lr, "train/step": global_step})
+                    log_gpu_memory(f"step {global_step}")
+                    gc.collect()
+                    if device_type == "gpu":
+                        torch.cuda.empty_cache()
 
                 # Eval + checkpoint
                 if global_step % args.eval_steps == 0:
