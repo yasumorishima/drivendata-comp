@@ -21,15 +21,20 @@ Children's speech differs significantly from adult speech (pronunciation errors,
 
 ### Approach
 
-**Phonetic Track (TPU training in progress)**
+**Phonetic Track (Kaggle GPU training)**
 - Base model: `facebook/wav2vec2-base` with CTC head
-- IPA vocabulary built from training transcripts (100+ IPA characters)
-- Raw PyTorch training loop (HuggingFace Trainer incompatible with TPU PJRT)
-- Kaggle TPU v3-8 with bf16, gradient checkpointing disabled (torch_xla crash workaround)
+- IPA vocabulary built from training transcripts (52 IPA characters)
+- Raw PyTorch training loop with crash-proof measures:
+  - Gradient checkpointing (GPU ~40% VRAM savings)
+  - Auto batch size reduction based on available VRAM
+  - `mask_time_prob=0.0` to prevent crash on short audio
+  - Periodic GC + `torch.cuda.empty_cache()` every 100 steps
+  - GPU memory logging at checkpoints
+- Previous: Colab T4 reached CER 0.535 (child-exp000, 20 epochs) but model lost to Drive sync failure
+- TPU approach abandoned (v5-v27: OOM/idle timeout issues)
 
-**Word Track (baseline export in progress)**
+**Word Track (not yet started)**
 - Base model: NVIDIA Parakeet TDT 0.6B (NeMo)
-- Linear adapter fine-tuning (freeze base, train adapter only)
 - Baseline: pretrained model export without fine-tuning (WER ~0.164)
 - Noise augmentation using provided classroom noise samples (planned)
 
@@ -163,12 +168,14 @@ drivendata-comp/
 - [x] Kaggle TPU v3-8 training workflow (GPU枠とは別枠で学習可能)
 - [x] Pre-push dry-run smoke test (CPU上でdtype/shape/importエラーを事前検出)
 - [x] Word Track pipeline: kernel-metadata + generate_notebook + export_only mode
-- [ ] Phonetic wav2vec2-base CTC — TPU v3-8で学習中 (v27)
-- [ ] Word Track baseline — pretrained Parakeet TDT export中
+- [x] colab-mcp integration: Claude Code → Colab GPU direct execution for experiment iteration
+- [x] Crash-proof training: gradient checkpointing, auto batch size, mask_time_prob, GC, OOM handler
+- [x] Fix: data to /tmp to prevent Kaggle output pollution (12K+ files in /kaggle/working/)
+- [ ] Phonetic wav2vec2-base CTC — Kaggle GPU学習中 (v4)
+- [ ] Word Track baseline — pretrained Parakeet TDT export
 - [ ] Package Submission → first DrivenData submission (both tracks)
 - [ ] Phonetic improvements: data augmentation, pyctcdecode LM
 - [ ] Word Track: adapter fine-tuning with noise augmentation
-- [x] colab-mcp integration: Claude Code → Colab GPU direct execution for experiment iteration
 
 ## Profile
 

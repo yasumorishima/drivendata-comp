@@ -117,6 +117,32 @@ Artifactから `submission.zip` をダウンロード → DrivenDataコンペペ
 - `KAGGLE_API_TOKEN` 環境変数だけでは認証が通らないケースあり
 - `kernels_status` APIはpush直後〜起動までの間に403を返す（一時的、2分待機で回避）
 
+## 踏んだ地雷と対策
+
+### Kaggle output汚染（2026-03-23）
+- **症状**: カーネル正常完了（2.5時間）なのに`model_*.tar.gz`が出力に見つからない
+- **原因**: `data/phonetic/`（相対パス）でデータ展開 → `/kaggle/working/data/phonetic/`になり、12,000+個のflacファイルがkernel outputに含まれた
+- **対策**: データは`/tmp/data/phonetic/`に展開。packaging後に`/kaggle/working/`をクリーンアップ
+
+### Colab Drive同期失敗（2026-03-21）
+- **症状**: 学習完了（CER 0.535）だが`model.safetensors`が15KBしかない
+- **原因**: Colab FUSE mountが大ファイル（360MB）の同期に失敗
+- **対策**: `verify_saved_model()`でファイルサイズ検証 + backupコピー + `os.sync()`強制
+
+### Colab idle timeout（2026-03-23）
+- **症状**: 学習中（step 800/3400）にランタイム切断
+- **原因**: 長時間セル実行中にColab⇔ブラウザ間WebSocketがアイドル判定
+- **対策**: バックグラウンドsubprocess + 60秒間隔keepaliveモニタ
+
+### OOM on large models（2026-03-21）
+- **症状**: wav2vec2-large-xlsr-53がbatch=2でもOOM
+- **原因**: T4 15GBではlargeモデル+optimizer states+activationsが入らない
+- **対策**: gradient_checkpointing有効化 + `get_safe_batch_size()`で自動縮小
+
+### mask_time_prob crash（2026-03-21）
+- **症状**: 短い音声でSpecAugmentがクラッシュ
+- **対策**: `mask_time_prob=0.0`をモデル読み込み時に設定
+
 ## Secrets（GitHub Actions）
 
 | Secret | 内容 |
