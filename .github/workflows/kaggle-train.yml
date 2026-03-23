@@ -40,6 +40,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: write
+
 jobs:
   train:
     name: Train on Kaggle GPU

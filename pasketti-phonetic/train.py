@@ -205,7 +205,12 @@ def get_device():
 
 
 def get_safe_batch_size(requested: int, model_name: str, device_type: str) -> int:
-    """Auto-reduce batch size based on available VRAM and model size."""
+    """Auto-reduce batch size based on available VRAM and model size.
+
+    Thresholds (with gradient checkpointing enabled):
+      - base models: batch=16 needs ~6GB on T4 (15GB) → safe up to 16
+      - large/xlsr models: batch=2 needs ~12GB → cap at 2-4
+    """
     if device_type != "gpu":
         return requested
     vram_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2
@@ -213,7 +218,8 @@ def get_safe_batch_size(requested: int, model_name: str, device_type: str) -> in
     if is_large:
         max_safe = 2 if vram_mb < 16000 else 4
     else:
-        max_safe = 8 if vram_mb < 16000 else 16
+        # base models with grad ckpt: T4(15GB)→16, P100(16GB)→16
+        max_safe = 16 if vram_mb >= 12000 else 8
     result = min(requested, max_safe)
     if result != requested:
         print(f"  Batch size auto-reduced: {requested} -> {result} (VRAM={vram_mb:.0f}MB)")
@@ -319,6 +325,42 @@ def dry_run(model_name: str = "facebook/wav2vec2-base"):
     vocab_path.unlink(missing_ok=True)
 
 
+def save_training_state(checkpoint_dir: Path, global_step: int, epoch: int, best_cer: float,
+                        optimizer, model, processor, drive_dir: Path | None = None):
+    """Save full training state (model + optimizer + metadata) for resume."""
+    state_path = checkpoint_dir / "training_state.json"
+    state = {"global_step": global_step, "epoch": epoch, "best_cer": best_cer}
+    with open(state_path, "w") as f:
+        json.dump(state, f)
+    torch.save(optimizer.state_dict(), str(checkpoint_dir / "optimizer.pt"))
+    model.save_pretrained(str(checkpoint_dir))
+    processor.save_pretrained(str(checkpoint_dir))
+    # Mirror to Google Drive if configured
+    if drive_dir:
+        import shutil
+        drive_ckpt = drive_dir / "latest_checkpoint"
+        if drive_ckpt.exists():
+            shutil.rmtree(drive_ckpt)
+        shutil.copytree(checkpoint_dir, drive_ckpt)
+        # Force flush to Drive
+        os.sync() if hasattr(os, "sync") else None
+        print(f"  Checkpoint synced to Drive: {drive_ckpt}")
+
+
+def load_training_state(checkpoint_dir: Path) -> dict | None:
+    """Load training state for resume. Returns None if no valid state found."""
+    state_path = checkpoint_dir / "training_state.json"
+    if not state_path.exists():
+        return None
+    with open(state_path) as f:
+        state = json.load(f)
+    optimizer_path = checkpoint_dir / "optimizer.pt"
+    if not optimizer_path.exists():
+        return None
+    print(f"  Found checkpoint: step={state['global_step']}, epoch={state['epoch']}, best_cer={state['best_cer']:.4f}")
+    return state
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, required=True)
@@ -333,11 +375,20 @@ def main():
     parser.add_argument("--train_split", type=float, default=0.9)
     parser.add_argument("--wandb_project", type=str, default="drivendata-phonetic-asr")
     parser.add_argument("--memo", type=str, default="local")
+    parser.add_argument("--resume_from", type=str, default=None,
+                        help="Path to checkpoint directory to resume from (e.g. Drive path)")
+    parser.add_argument("--drive_checkpoint_dir", type=str, default=None,
+                        help="Google Drive path to mirror checkpoints for crash recovery")
+    parser.add_argument("--save_every_steps", type=int, default=500,
+                        help="Save checkpoint every N optimizer steps (for Colab crash recovery)")
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    drive_dir = Path(args.drive_checkpoint_dir) if args.drive_checkpoint_dir else None
+    if drive_dir:
+        drive_dir.mkdir(parents=True, exist_ok=True)
 
     # Device
     device, device_type = get_device()
@@ -372,13 +423,21 @@ def main():
     print("=== Preparing dataset ===")
     dataset = prepare_dataset(transcripts, data_dir, processor)
 
-    # Train/val split
+    # Train/val split (fixed seed for reproducibility across resume)
     np.random.seed(42)
     indices = np.random.permutation(len(dataset))
     split_idx = int(len(dataset) * args.train_split)
     train_data = [dataset[i] for i in indices[:split_idx]]
     val_data = [dataset[i] for i in indices[split_idx:]]
     print(f"Train: {len(train_data)}, Val: {len(val_data)}")
+
+    # Auto-adjust batch size for GPU safety
+    args.batch_size = get_safe_batch_size(args.batch_size, args.model_name, device_type)
+    # Auto-adjust gradient accumulation to preserve effective batch size
+    effective_target = 64  # reasonable default
+    if args.batch_size * args.gradient_accumulation < effective_target:
+        args.gradient_accumulation = max(1, effective_target // args.batch_size)
+    print(f"  Effective batch: {args.batch_size} x {args.gradient_accumulation} = {args.batch_size * args.gradient_accumulation}")
 
     print("=== Pre-loading audio ===")
     train_dataset = AudioDataset(train_data, processor, preload=True)
@@ -393,22 +452,25 @@ def main():
         collate_fn=collate_fn, num_workers=0,
     )
 
-    # Auto-adjust batch size for GPU safety
-    args.batch_size = get_safe_batch_size(args.batch_size, args.model_name, device_type)
-    # Auto-adjust gradient accumulation to preserve effective batch size
-    effective_target = 64  # reasonable default
-    if args.batch_size * args.gradient_accumulation < effective_target:
-        args.gradient_accumulation = max(1, effective_target // args.batch_size)
-    print(f"  Effective batch: {args.batch_size} x {args.gradient_accumulation} = {args.batch_size * args.gradient_accumulation}")
+    # Check for resume checkpoint
+    resume_state = None
+    resume_dir = None
+    if args.resume_from:
+        resume_dir = Path(args.resume_from)
+        if not resume_dir.exists() and drive_dir:
+            # Try Drive fallback
+            resume_dir = drive_dir / "latest_checkpoint"
+        if resume_dir.exists():
+            resume_state = load_training_state(resume_dir)
 
     # Load model
-    print(f"=== Loading model: {args.model_name} ===")
+    model_source = str(resume_dir) if resume_state else args.model_name
+    print(f"=== Loading model: {model_source} ===")
     model = Wav2Vec2ForCTC.from_pretrained(
-        args.model_name,
+        model_source,
         ctc_loss_reduction="mean",
         pad_token_id=processor.tokenizer.pad_token_id,
         vocab_size=len(processor.tokenizer),
-        # Prevent crash on short audio segments
         mask_time_prob=0.0,
     )
     model.freeze_feature_encoder()
@@ -429,27 +491,50 @@ def main():
         lr=args.lr, weight_decay=0.01,
     )
 
+    # Restore optimizer state if resuming
+    if resume_state and resume_dir:
+        opt_path = resume_dir / "optimizer.pt"
+        if opt_path.exists():
+            optimizer.load_state_dict(torch.load(str(opt_path), map_location=device, weights_only=True))
+            print(f"  Optimizer state restored from {opt_path}")
+
     # Schedule
     steps_per_epoch = len(train_loader) // args.gradient_accumulation
     total_steps = steps_per_epoch * args.epochs
 
+    # Resume state
+    start_epoch = resume_state["epoch"] if resume_state else 0
+    global_step = resume_state["global_step"] if resume_state else 0
+    best_cer = resume_state["best_cer"] if resume_state else float("inf")
+    if resume_state:
+        print(f"  Resuming from epoch={start_epoch}, step={global_step}, best_cer={best_cer:.4f}")
+
     # W&B
-    run = wandb.init(project=args.wandb_project, name=args.memo, config=vars(args))
+    wandb_kwargs = {"project": args.wandb_project, "name": args.memo, "config": vars(args)}
+    if resume_state:
+        wandb_kwargs["resume"] = "allow"
+    run = wandb.init(**wandb_kwargs)
 
     # Training loop
     print(f"=== Training ({args.epochs} epochs, {total_steps} steps) ===")
-    global_step = 0
-    best_cer = float("inf")
     checkpoint_dir = output_dir / "checkpoints"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         model.train()
         epoch_loss = 0.0
         optimizer.zero_grad()
         t0 = time.time()
+        steps_in_epoch = 0
 
         for batch_idx, batch in enumerate(train_loader):
+            # Skip batches already processed in resumed epoch
+            if resume_state and epoch == start_epoch:
+                batch_step = (batch_idx + 1) // args.gradient_accumulation
+                target_step_in_epoch = global_step - steps_per_epoch * start_epoch
+                if batch_step <= target_step_in_epoch:
+                    continue
+
             input_values = batch["input_values"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
@@ -485,6 +570,7 @@ def main():
 
                 optimizer.zero_grad()
                 global_step += 1
+                steps_in_epoch += 1
                 epoch_loss += loss.item() * args.gradient_accumulation
 
                 # Logging + periodic GC
@@ -497,35 +583,40 @@ def main():
                     if device_type == "gpu":
                         torch.cuda.empty_cache()
 
+                # Periodic checkpoint for crash recovery
+                if args.save_every_steps > 0 and global_step % args.save_every_steps == 0:
+                    ckpt_path = checkpoint_dir / f"checkpoint-{global_step}"
+                    save_training_state(ckpt_path, global_step, epoch, best_cer,
+                                        optimizer, model, processor, drive_dir)
+                    print(f"  Saved resumable checkpoint: step {global_step}")
+
                 # Eval + checkpoint
                 if global_step % args.eval_steps == 0:
                     cer_score = evaluate(model, val_loader, device, device_type, processor)
                     print(f"  [Eval] Step {global_step} | CER: {cer_score:.4f}")
                     wandb.log({"eval/cer": cer_score, "eval/step": global_step})
 
-                    # Save checkpoint
-                    ckpt_path = checkpoint_dir / f"checkpoint-{global_step}"
-                    model.save_pretrained(str(ckpt_path))
-                    processor.save_pretrained(str(ckpt_path))
-                    print(f"  Saved checkpoint: {ckpt_path}")
-
                     if cer_score < best_cer:
                         best_cer = cer_score
                         best_path = checkpoint_dir / "best"
-                        model.save_pretrained(str(best_path))
-                        processor.save_pretrained(str(best_path))
+                        save_training_state(best_path, global_step, epoch, best_cer,
+                                            optimizer, model, processor, drive_dir)
                         print(f"  New best CER: {best_cer:.4f}")
 
-                    # Cleanup old checkpoints (keep best + latest 3)
+                    # Cleanup old checkpoints (keep best + latest 2)
                     ckpts = sorted(checkpoint_dir.glob("checkpoint-*"), key=lambda p: int(p.name.split("-")[1]))
-                    for old in ckpts[:-3]:
+                    for old in ckpts[:-2]:
                         import shutil
                         shutil.rmtree(old)
 
                     model.train()
 
-        avg_loss = epoch_loss / max(steps_per_epoch, 1)
+        avg_loss = epoch_loss / max(steps_in_epoch, 1)
         print(f"Epoch {epoch + 1}/{args.epochs} | Avg Loss: {avg_loss:.4f} | Time: {time.time() - t0:.0f}s")
+
+        # Clear resume skip flag after first epoch
+        if resume_state and epoch == start_epoch:
+            resume_state = None
 
     # Final evaluation
     print("=== Final evaluation ===")
@@ -552,6 +643,17 @@ def main():
 
     total_size = sum(f.stat().st_size for f in model_save_dir.rglob("*") if f.is_file()) / 1024 / 1024
     print(f"Model size: {total_size:.1f} MB")
+
+    # Mirror final model to Drive
+    if drive_dir:
+        import shutil
+        drive_final = drive_dir / "final_model"
+        if drive_final.exists():
+            shutil.rmtree(drive_final)
+        shutil.copytree(model_save_dir, drive_final)
+        os.sync() if hasattr(os, "sync") else None
+        print(f"Final model saved to Drive: {drive_final}")
+
     run.finish()
 
 
