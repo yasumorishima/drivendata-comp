@@ -91,13 +91,13 @@ print(f"Downloading: {{artifact['name']}} ({{artifact['size_in_bytes'] / 1024 / 
 resp = requests.get(artifact["archive_download_url"], headers=headers)
 resp.raise_for_status()
 
-os.makedirs("data/phonetic", exist_ok=True)
+os.makedirs("/tmp/data/phonetic", exist_ok=True)
 with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-    zf.extractall("data/phonetic")
+    zf.extractall("/tmp/data/phonetic")
 
 print("Downloaded files:")
-for f in sorted(os.listdir("data/phonetic"))[:20]:
-    size = os.path.getsize(f"data/phonetic/{{f}}") / 1024 / 1024
+for f in sorted(os.listdir("/tmp/data/phonetic"))[:20]:
+    size = os.path.getsize(f"/tmp/data/phonetic/{{f}}") / 1024 / 1024
     print(f"  {{f}} ({{size:.1f}} MB)")
 """)
 
@@ -105,7 +105,7 @@ add_code("""# Extract audio ZIP files
 import zipfile
 from pathlib import Path
 
-data_dir = Path("data/phonetic")
+data_dir = Path("/tmp/data/phonetic")
 for zf_path in sorted(data_dir.glob("*.zip")):
     print(f"Extracting: {zf_path.name}")
     with zipfile.ZipFile(zf_path) as zf:
@@ -136,7 +136,7 @@ add_code(f"""# Train (runpy — same process, isolated namespace, shares TPU dev
 import sys, runpy
 sys.argv = [
     "train.py",
-    "--data_dir", "data/phonetic",
+    "--data_dir", "/tmp/data/phonetic",
     "--output_dir", "/kaggle/working/model_phonetic",
     "--model_name", "{MODEL_NAME}",
     "--epochs", "{EPOCHS}",
@@ -167,9 +167,10 @@ else:
         print(f"  {f}")
 """)
 
-add_code("""# Package model for output
+add_code("""# Package model for output + clean up /kaggle/working/
 import tarfile
 import shutil
+import glob
 
 model_dir = "/kaggle/working/model_phonetic/final_model"
 tar_path = "/kaggle/working/model_phonetic.tar.gz"
@@ -181,7 +182,6 @@ size_mb = os.path.getsize(tar_path) / 1024 / 1024
 print(f"Model archive: {tar_path} ({size_mb:.1f} MB)")
 
 # Copy wandb offline runs to working dir for download
-import glob
 wandb_dirs = glob.glob("/kaggle/working/model_phonetic/checkpoints/wandb/offline-run-*")
 if not wandb_dirs:
     wandb_dirs = glob.glob("/kaggle/working/wandb/offline-run-*")
@@ -189,6 +189,28 @@ for d in wandb_dirs:
     dest = f"/kaggle/working/{os.path.basename(d)}"
     shutil.copytree(d, dest, dirs_exist_ok=True)
     print(f"Copied W&B run: {dest}")
+
+# Clean up: remove everything except tar.gz, wandb runs, and log from /kaggle/working/
+# This prevents input data or checkpoints from polluting kernel output
+keep_prefixes = ("model_phonetic.tar.gz", "offline-run-")
+for item in os.listdir("/kaggle/working/"):
+    path = os.path.join("/kaggle/working/", item)
+    if any(item.startswith(p) for p in keep_prefixes):
+        continue
+    if item == "model_phonetic":
+        shutil.rmtree(path)
+        print(f"Cleaned up: {item}/")
+    elif os.path.isdir(path) and item not in ("__notebook_source__",):
+        shutil.rmtree(path)
+        print(f"Cleaned up: {item}/")
+
+print("\\nFinal /kaggle/working/ contents:")
+for item in sorted(os.listdir("/kaggle/working/")):
+    path = os.path.join("/kaggle/working/", item)
+    if os.path.isfile(path):
+        print(f"  {item} ({os.path.getsize(path) / 1024 / 1024:.1f} MB)")
+    else:
+        print(f"  {item}/")
 
 print("\\nDone! Kernel output ready for download.")
 """)
