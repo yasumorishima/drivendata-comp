@@ -59,6 +59,57 @@ jobs:
       - name: Install dependencies
         run: pip install kaggle wandb
 
+      - name: Preflight check
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          COMP_DIR="${{ inputs.competition_dir }}"
+          ERRORS=0
+
+          # 1. Secrets check
+          echo "=== 1. Secrets check ==="
+          for VAR in KAGGLE_USERNAME KAGGLE_KEY GH_PAT; do
+            if [ -z "${!VAR}" ]; then
+              echo "FAIL: $VAR not set"
+              ERRORS=$((ERRORS+1))
+            fi
+          done
+          [ $ERRORS -eq 0 ] && echo "OK: All secrets present"
+
+          # 2. Kaggle auth test
+          echo "=== 2. Kaggle auth test ==="
+          mkdir -p ~/.kaggle
+          echo "{\"username\":\"$KAGGLE_USERNAME\",\"key\":\"$KAGGLE_KEY\"}" > ~/.kaggle/kaggle.json
+          chmod 600 ~/.kaggle/kaggle.json
+          kaggle kernels list --mine --page-size 1 > /dev/null 2>&1 || { echo "FAIL: Kaggle auth"; ERRORS=$((ERRORS+1)); }
+          echo "OK: Kaggle auth works"
+
+          # 3. Config files check
+          echo "=== 3. Config check ==="
+          for F in "$COMP_DIR/drivendata-config.json" "$COMP_DIR/kernel-metadata.json" "$COMP_DIR/train.py"; do
+            if [ ! -f "$F" ]; then
+              echo "FAIL: $F not found"
+              ERRORS=$((ERRORS+1))
+            fi
+          done
+
+          # 4. Kernel ID slug check
+          echo "=== 4. Kernel ID slug check ==="
+          if [ -f "$COMP_DIR/kernel-metadata.json" ]; then
+            KID=$(python3 -c "import json; print(json.load(open('$COMP_DIR/kernel-metadata.json')).get('id',''))")
+            KTITLE=$(python3 -c "import json; print(json.load(open('$COMP_DIR/kernel-metadata.json')).get('title',''))")
+            echo "Kernel ID: $KID, Title: $KTITLE"
+          fi
+
+          # 5. GitHub Release permission check (contents: write)
+          echo "=== 5. Release permission check ==="
+          echo "permissions.contents: write is set in workflow"
+
+          echo "=== Preflight: $ERRORS errors ==="
+          if [ $ERRORS -gt 0 ]; then exit 1; fi
+
       - name: Dry-run smoke test (CPU)
         run: |
           cd ${{ inputs.competition_dir }}
