@@ -25,6 +25,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Preflight check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          COMP_DIR="${{ inputs.competition_dir }}"
+          TAG="${{ inputs.model_release_tag }}"
+          ERRORS=0
+
+          # 1. GitHub Release tag exists
+          echo "=== 1. Release tag check ==="
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            echo "FAIL: Release '$TAG' not found"
+            ERRORS=$((ERRORS+1))
+          else
+            ASSET_COUNT=$(gh release view "$TAG" --json assets --jq '.assets | length')
+            echo "OK: Release '$TAG' exists ($ASSET_COUNT assets)"
+          fi
+
+          # 2. Required files exist
+          echo "=== 2. Required files check ==="
+          if [ ! -f "$COMP_DIR/main.py" ]; then
+            echo "FAIL: $COMP_DIR/main.py not found"
+            ERRORS=$((ERRORS+1))
+          else
+            echo "OK: main.py exists"
+          fi
+
+          # 3. Competition config exists
+          echo "=== 3. Competition config check ==="
+          if [ ! -f "$COMP_DIR/drivendata-config.json" ]; then
+            echo "FAIL: $COMP_DIR/drivendata-config.json not found"
+            ERRORS=$((ERRORS+1))
+          else
+            echo "OK: drivendata-config.json exists"
+          fi
+
+          echo "=== Preflight: $ERRORS errors ==="
+          if [ $ERRORS -gt 0 ]; then exit 1; fi
+
       - name: Download model from release
         env:
           GH_TOKEN: ${{ github.token }}
