@@ -1,6 +1,6 @@
 {
   "id": "yasunorim/drivendata-word-track-training",
-  "title": "DrivenData Word Track Training",
+  "title": "drivendata-word-track-training",
   "code_file": "train_kaggle.ipynb",
   "language": "python",
   "kernel_type": "notebook",
