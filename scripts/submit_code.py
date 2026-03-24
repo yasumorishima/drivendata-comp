@@ -60,59 +60,73 @@ def submit(page, comp_id: int, slug: str, zip_path: Path):
         page.screenshot(path="submit_form_opened.png", full_page=True)
         print(f"Code jobs page URL: {page.url}")
 
-    # Step 2: Click "+ New code submission" button to open upload form
+    # Step 2: Click "+ New code submission" to open modal dialog
     new_code_btn = page.query_selector(
         'a:has-text("New code submission"), button:has-text("New code submission")'
     )
     if new_code_btn:
         print("Clicking '+ New code submission'...")
         new_code_btn.click()
-        page.wait_for_load_state("networkidle")
         time.sleep(3)
-        page.screenshot(path="submit_upload_form.png", full_page=True)
-        print(f"Upload form URL: {page.url}")
+        page.screenshot(path="submit_modal_opened.png", full_page=True)
+        print("Modal dialog opened")
     else:
         print("No 'New code submission' button found, trying current page...")
 
-    # Step 3: Find file input (should now be visible after opening upload form)
-    file_input = page.query_selector('input[type="file"]')
-    if not file_input:
-        file_inputs = page.query_selector_all('input[type="file"]')
-        print(f"Found {len(file_inputs)} file inputs")
-        if not file_inputs:
-            # Try waiting for dynamic content
-            print("Waiting for file input to appear...")
-            try:
-                page.wait_for_selector('input[type="file"]', timeout=10000)
-                file_input = page.query_selector('input[type="file"]')
-            except Exception:
-                pass
-        else:
-            file_input = file_inputs[0]
+    # Step 3: Find file input inside the modal (#modalUploadCode)
+    modal = page.query_selector('#modalUploadCode')
+    if modal:
+        print("Found modal #modalUploadCode")
+        file_input = modal.query_selector('input[type="file"]')
+    else:
+        print("No modal found, searching page...")
+        file_input = page.query_selector('input[type="file"]')
 
     if not file_input:
-        print("ERROR: No file input found on page")
-        # Dump page HTML for debugging
+        # Wait for modal/input to appear
+        print("Waiting for file input...")
+        try:
+            page.wait_for_selector('#modalUploadCode input[type="file"]', timeout=15000)
+            file_input = page.query_selector('#modalUploadCode input[type="file"]')
+        except Exception:
+            pass
+
+    if not file_input:
+        # Last resort: any file input on page
+        file_input = page.query_selector('input[type="file"]')
+
+    if not file_input:
+        print("ERROR: No file input found")
         html = page.content()
         with open("submit_debug.html", "w") as f:
             f.write(html)
         page.screenshot(path="submit_error.png", full_page=True)
         return False
 
-    # Step 3: Upload the ZIP
+    # Step 4: Upload the ZIP via file input
     print(f"Uploading: {zip_path} ({zip_path.stat().st_size / 1024 / 1024:.1f} MB)")
     file_input.set_input_files(str(zip_path))
     time.sleep(5)
     page.screenshot(path="submit_file_selected.png", full_page=True)
 
-    # Step 4: Click submit/upload button
-    submit_btn = (
-        page.query_selector('button[type="submit"]')
-        or page.query_selector('input[type="submit"]')
-        or page.query_selector('button:has-text("Submit")')
-        or page.query_selector('button:has-text("Upload")')
-        or page.query_selector('button:has-text("submit")')
-    )
+    # Step 5: Click submit button inside modal
+    if modal:
+        submit_btn = (
+            modal.query_selector('button[type="submit"]')
+            or modal.query_selector('button:has-text("Submit")')
+            or modal.query_selector('button:has-text("Upload")')
+        )
+    else:
+        submit_btn = None
+
+    if not submit_btn:
+        submit_btn = (
+            page.query_selector('#modalUploadCode button[type="submit"]')
+            or page.query_selector('#modalUploadCode button:has-text("Submit")')
+            or page.query_selector('button[type="submit"]')
+            or page.query_selector('button:has-text("Submit")')
+            or page.query_selector('button:has-text("Upload")')
+        )
 
     if submit_btn:
         print("Clicking submit button...")
