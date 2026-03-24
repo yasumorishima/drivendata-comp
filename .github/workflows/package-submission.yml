@@ -152,6 +152,37 @@ jobs:
           path: submission.zip
           retention-days: 90
 
+      - name: Auto-submit via Playwright
+        env:
+          DRIVENDATA_EMAIL: ${{ secrets.DRIVENDATA_EMAIL }}
+          DRIVENDATA_PASSWORD: ${{ secrets.DRIVENDATA_PASSWORD }}
+        run: |
+          pip install -q playwright
+          python -m playwright install chromium
+          python -m playwright install-deps
+
+          # Determine track from competition_dir
+          COMP_DIR="${{ inputs.competition_dir }}"
+          if echo "$COMP_DIR" | grep -qi "phonetic"; then
+            TRACK="phonetic"
+          elif echo "$COMP_DIR" | grep -qi "word"; then
+            TRACK="word"
+          else
+            echo "WARN: Cannot determine track from $COMP_DIR, skipping auto-submit"
+            exit 0
+          fi
+
+          python scripts/submit_code.py --zip submission.zip --track "$TRACK"
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: submit-screenshots
+          path: submit_*.png
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Notify Discord (success)
         if: success()
         run: |
@@ -163,7 +194,7 @@ jobs:
 
           curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
-            -d "{\"content\": \"📦 **DrivenData Submission ZIP作成完了**\nDir: \`${{ inputs.competition_dir }}\`\nModel: \`${{ inputs.model_release_tag }}\`\nSize: ${ZIP_SIZE}\nMemo: ${{ inputs.memo }}\n\n📤 Artifactをダウンロードして提出:\n${SUBMIT_URL}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
+            -d "{\"content\": \"✅ **DrivenData提出完了（Playwright自動）**\nDir: \`${{ inputs.competition_dir }}\`\nModel: \`${{ inputs.model_release_tag }}\`\nSize: ${ZIP_SIZE}\nMemo: ${{ inputs.memo }}\n${SUBMIT_URL}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
 
       - name: Notify Discord (failure)
         if: failure()
