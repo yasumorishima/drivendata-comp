@@ -54,11 +54,12 @@ Children's speech differs significantly from adult speech (pronunciation errors,
 ### Training & Submission (GitHub Actions + Kaggle GPU/TPU)
 
 ```
-Download Data (Playwright) → Kaggle GPU/TPU Train → GitHub Release → Package ZIP → Submit
+Download Data (Playwright) → Kaggle GPU Train → Release → Package ZIP 自動トリガー → 手動ZIPアップロード
 ```
 
+- GPU Train完了後に**Package Submissionを自動トリガー** — ZIPアップロードのみ手動（DrivenData APIなし）
 - GPU→CPU auto-fallback on quota/OOM/CUDA errors
-- `COMPLETE_EMPTY` (no output) treated as failure
+- Preflight check: Secrets・Kaggle auth・config・kernel slugを学習前に検証
 - Export-only mode: download pretrained model without training for baseline submission
 
 ## Workflows
@@ -192,9 +193,11 @@ drivendata-comp/
 - [x] W&B made optional (runs without WANDB_API_KEY)
 - [x] Colab single-session workflow (`train_colab.ipynb`): 5 epochs, batch=16, ~30-60min on T4
 - [x] kaggle-train.yml `permissions: contents: write` (fixes 403 on release creation)
-- [ ] Phonetic wav2vec2-base CTC — Kaggle GPU学習中 (v4)
+- [x] Preflight check on all workflows (Secrets, Kaggle auth, config, kernel slug)
+- [x] GPU Train → Package Submission auto-trigger
+- [x] Phonetic wav2vec2-base CTC — Kaggle GPU学習完了 (v5, 5ep, Release `phonetic-model-v5`)
+- [ ] Phonetic Track first submission — Package完了、ZIPアップロード待ち
 - [ ] Word Track baseline — pretrained Parakeet TDT export
-- [ ] Package Submission → first DrivenData submission (both tracks)
 - [ ] Phonetic improvements: data augmentation, pyctcdecode LM
 - [ ] Word Track: adapter fine-tuning with noise augmentation
 
