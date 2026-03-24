@@ -51,6 +51,42 @@ def add_code(source):
 
 add_md("# Pasketti Phonetic Track - Kaggle GPU Training")
 
+# Environment validation (MUST be first code cell — fail fast)
+add_code("""import torch, os, shutil
+
+errors = []
+print("=== Environment Validation ===")
+if torch.cuda.is_available():
+    gpu_name = torch.cuda.get_device_name(0)
+    cap = torch.cuda.get_device_capability(0)
+    cap_str = f"{cap[0]}.{cap[1]}"
+    print(f"GPU: {gpu_name} (sm_{cap[0]}{cap[1]}, compute {cap_str})")
+    print(f"VRAM: {torch.cuda.get_device_properties(0).total_mem / 1024**2:.0f} MB")
+    min_cap = (7, 0)
+    if cap < min_cap:
+        errors.append(f"GPU compute capability {cap_str} < {min_cap[0]}.{min_cap[1]} — PyTorch {torch.__version__} does not support this GPU.")
+    else:
+        try:
+            x = torch.randn(2, 2, device="cuda")
+            _ = x @ x
+            print("CUDA smoke test: OK")
+        except Exception as e:
+            errors.append(f"CUDA smoke test failed: {e}")
+else:
+    errors.append("No CUDA GPU detected.")
+
+disk = shutil.disk_usage("/kaggle/working")
+print(f"Disk free: {disk.free / 1024**3:.1f} GB")
+print(f"PyTorch: {torch.__version__}")
+
+if errors:
+    print("\\n=== VALIDATION FAILED ===")
+    for e in errors:
+        print(f"  ERROR: {e}")
+    raise RuntimeError(f"Environment validation failed: {'; '.join(errors)}")
+print("=== Validation passed ===\\n")
+""")
+
 add_code(f"""import os
 os.environ["WANDB_API_KEY"] = "{WANDB_API_KEY}"
 os.environ["WANDB_MODE"] = "offline"
