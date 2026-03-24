@@ -196,8 +196,8 @@ drivendata-comp/
 - [x] Preflight check on all workflows (Secrets, Kaggle auth, config, kernel slug)
 - [x] GPU Train → Package Submission auto-trigger
 - [x] Phonetic wav2vec2-base CTC — Kaggle GPU学習完了 (v5, 5ep, Release `phonetic-model-v5`)
-- [ ] Phonetic Track first submission — Package完了、ZIPアップロード待ち
-- [ ] Word Track baseline — pretrained Parakeet TDT export
+- [x] Phonetic Track first submission — Playwright自動提出完了、DrivenData実行中
+- [x] Word Track baseline — Parakeet TDT export-only実行中 (Release → Package → 自動提出)
 - [ ] Phonetic improvements: data augmentation, pyctcdecode LM
 - [ ] Word Track: adapter fine-tuning with noise augmentation
 
