@@ -165,6 +165,55 @@ jobs:
           # Verify auth works
           kaggle kernels list --mine --page-size 1 || { echo "ERROR: Kaggle auth failed"; exit 1; }
 
+      - name: Ensure kernel exists on Kaggle
+        run: |
+          KERNEL_ID="${{ steps.config.outputs.kernel_id }}"
+          NB_DIR="${{ inputs.competition_dir }}"
+          METADATA="$NB_DIR/kernel-metadata.json"
+
+          # Check if kernel exists via status API
+          EXISTS=$(python3 -c "
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          api = KaggleApi()
+          api.authenticate()
+          try:
+              api.kernels_status('$KERNEL_ID')
+              print('yes')
+          except Exception:
+              print('no')
+          " 2>&1)
+
+          if [ "$EXISTS" = "yes" ]; then
+            echo "Kernel '$KERNEL_ID' already exists on Kaggle."
+          else
+            echo "Kernel '$KERNEL_ID' does not exist. Creating bootstrap..."
+            # Temporarily set id to INSERT_KERNEL_SLUG_HERE for initial creation
+            ORIG_ID="$KERNEL_ID"
+            python3 -c "
+          import json
+          with open('$METADATA') as f:
+              meta = json.load(f)
+          meta['id'] = 'INSERT_KERNEL_SLUG_HERE'
+          with open('$METADATA', 'w') as f:
+              json.dump(meta, f, indent=2)
+          "
+            # Push to create the kernel
+            kaggle kernels push -p "$NB_DIR"
+            echo "Bootstrap push done. Waiting 30s for Kaggle to register..."
+            sleep 30
+
+            # Restore original id
+            python3 -c "
+          import json
+          with open('$METADATA') as f:
+              meta = json.load(f)
+          meta['id'] = '$ORIG_ID'
+          with open('$METADATA', 'w') as f:
+              json.dump(meta, f, indent=2)
+          "
+            echo "Kernel created, id restored to '$ORIG_ID'."
+          fi
+
       - name: Push and poll with GPU fallback
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
