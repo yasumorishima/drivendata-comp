@@ -350,90 +350,94 @@ jobs:
             return 1
           }
 
+          # Check kernel log for GPU allocation failure
+          check_no_gpu() {
+            mkdir -p /tmp/kernel_log
+            kaggle kernels output "$KERNEL_ID" -p /tmp/kernel_log 2>/dev/null || true
+            SLUG=$(echo "$KERNEL_ID" | cut -d'/' -f2)
+            LOG="/tmp/kernel_log/${SLUG}.log"
+            if [ -f "$LOG" ]; then
+              python3 -c "
+          import json
+          entries = json.load(open('$LOG'))
+          text = ' '.join(e.get('data','') for e in entries)
+          if 'No CUDA GPU detected' in text:
+              print('NO_GPU')
+          elif 'CUDA out of memory' in text or 'OOM' in text:
+              print('OOM')
+          else:
+              print('OTHER')
+          " 2>/dev/null || echo "OTHER"
+            else
+              echo "NO_LOG"
+            fi
+            rm -rf /tmp/kernel_log
+          }
+
+          # Push and poll with GPU retry (up to 3 attempts)
+          push_and_poll() {
+            PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
+            echo "Push output: $PUSH_OUTPUT"
+
+            # Fatal push errors — abort immediately
+            if echo "$PUSH_OUTPUT" | grep -qiE "Notebook not found|Kernel must be specified|Invalid kernel"; then
+              echo "ERROR: Push rejected by Kaggle API."
+              exit 1
+            fi
+
+            # GPU quota/session limit — abort (can't retry)
+            if echo "$PUSH_OUTPUT" | grep -qiE "session count.*reached|quota.*reached|GPU quota"; then
+              echo "ERROR: GPU quota or session limit reached."
+              curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+                -H "Content-Type: application/json" \
+                -d '{"content": "❌ **GPU枠不足**\nKernel: `'"$KERNEL_ID"'`\nKaggle GPU quota/session limitに達しました。"}' || true
+              return 1
+            fi
+
+            poll_until_done
+          }
+
           # Record original GPU setting for restoration
           ORIG_GPU=$(python3 -c "import json; print(json.load(open('$METADATA')).get('enable_gpu','false'))")
           echo "ORIG_GPU=$ORIG_GPU" >> "$GITHUB_ENV"
           echo "Original enable_gpu: $ORIG_GPU"
 
-          # --- Attempt 1: push as-is (GPU if configured) ---
-          wait_for_idle
-          echo "=== Attempt 1: pushing with enable_gpu=$ORIG_GPU ==="
-          PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
-          echo "Push output: $PUSH_OUTPUT"
+          MAX_GPU_RETRIES=3
+          for ATTEMPT in $(seq 1 $MAX_GPU_RETRIES); do
+            echo "=== GPU Attempt $ATTEMPT/$MAX_GPU_RETRIES ==="
+            wait_for_idle
 
-          # Fatal push errors — abort immediately, no fallback
-          if echo "$PUSH_OUTPUT" | grep -qiE "Notebook not found|Kernel must be specified|Invalid kernel"; then
-            echo "ERROR: Push rejected by Kaggle API. Kernel does not exist or ID is invalid."
-            echo "Push output: $PUSH_OUTPUT"
-            echo "Fix: Verify kernel-metadata.json 'id' field and run 'Ensure kernel exists' step."
-            exit 1
-          fi
-
-          # Check if push itself was rejected due to GPU quota/session limit
-          GPU_QUOTA_HIT=false
-          SESSION_LIMIT_HIT=false
-          if echo "$PUSH_OUTPUT" | grep -qiE "session count.*reached"; then
-            echo "GPU push rejected: concurrent session limit."
-            SESSION_LIMIT_HIT=true
-            GPU_QUOTA_HIT=true
-          elif echo "$PUSH_OUTPUT" | grep -qiE "quota.*reached|GPU quota"; then
-            echo "GPU push rejected: weekly quota exhausted."
-            GPU_QUOTA_HIT=true
-          fi
-
-          if [ "$GPU_QUOTA_HIT" = "false" ]; then
-            if poll_until_done; then
-              echo "Success on first attempt."
+            if push_and_poll; then
+              echo "Success on attempt $ATTEMPT."
               exit 0
             fi
-          fi
 
-          # --- Check if GPU-related failure → CPU fallback ---
-          if [ "$ORIG_GPU" != "true" ]; then
-            echo "GPU was not enabled; no fallback to try."
+            # Kernel failed — check why
+            FAIL_REASON=$(check_no_gpu)
+            echo "Failure reason: $FAIL_REASON"
+
+            if [ "$FAIL_REASON" = "NO_GPU" ]; then
+              echo "Kaggle allocated CPU instead of GPU. Retrying..."
+              curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+                -H "Content-Type: application/json" \
+                -d '{"content": "⚠️ **GPU未割り当て (attempt '"$ATTEMPT"'/'"$MAX_GPU_RETRIES"')**\nKernel: `'"$KERNEL_ID"'`\nKaggleがCPUで起動。GPUリトライします。"}' || true
+              if [ "$ATTEMPT" -lt "$MAX_GPU_RETRIES" ]; then
+                echo "Waiting 60s before retry..."
+                sleep 60
+                continue
+              fi
+            fi
+
+            # OOM, OTHER, NO_LOG, or final attempt — give up
+            echo "GPU failed (reason: $FAIL_REASON). No more retries."
+            curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d '{"content": "❌ **GPU学習失敗**\nKernel: `'"$KERNEL_ID"'`\n理由: '"$FAIL_REASON"'\nAttempt: '"$ATTEMPT"'/'"$MAX_GPU_RETRIES"'"}' || true
             exit 1
-          fi
+          done
 
-          # GPU was enabled and kernel failed → always try CPU fallback.
-          # Could be GPU quota, OOM, CUDA error, or unknown — CPU retry is cheap.
-          if [ "$GPU_QUOTA_HIT" = "true" ]; then
-            echo "GPU quota/session limit → CPU fallback."
-          else
-            FAILURE_MSG="${FAILURE_MSG:-unknown}"
-            echo "GPU kernel failed ($FAILURE_MSG) → CPU fallback."
-          fi
-
-          # --- Attempt 2: fallback to CPU ---
-          echo "=== Falling back to CPU... ==="
-          python3 -c "
-          import json
-          with open('$METADATA') as f:
-              meta = json.load(f)
-          meta['enable_gpu'] = 'false'
-          with open('$METADATA', 'w') as f:
-              json.dump(meta, f, indent=2)
-          print('Switched enable_gpu to false')
-          "
-
-          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
-            -H "Content-Type: application/json" \
-            -d '{"content": "⚠️ **GPU失敗 → CPUフォールバック**\nKernel: `'"$KERNEL_ID"'`\n理由: '"${FAILURE_MSG:-unknown}"'\nCPUで再実行します。"}' || true
-
-          wait_for_idle
-          CPU_PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
-          echo "CPU push output: $CPU_PUSH_OUTPUT"
-
-          if echo "$CPU_PUSH_OUTPUT" | grep -qiE "Notebook not found|Kernel must be specified|Invalid kernel"; then
-            echo "ERROR: CPU push also rejected. Kernel does not exist."
-            exit 1
-          fi
-
-          if poll_until_done; then
-            echo "Success on CPU fallback."
-          else
-            echo "CPU fallback also failed."
-            exit 1
-          fi
+          echo "All GPU attempts exhausted."
+          exit 1
 
       - name: Restore GPU setting
         if: always()

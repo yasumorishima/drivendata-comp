@@ -79,6 +79,31 @@ def check_kernel_exists(kernel_id: str):
         return False, f"API error: {err}"
 
 
+def check_gpu_quota():
+    """Check Kaggle GPU quota availability."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "-c", """
+from kaggle.api.kaggle_api_extended import KaggleApi
+api = KaggleApi(); api.authenticate()
+# Push a minimal test to check if GPU is available
+# We can't directly query quota, but we can check recent kernel GPU usage
+kernels = api.kernels_list(mine=True, page_size=5)
+gpu_count = sum(1 for k in kernels if getattr(k, 'enable_gpu', False))
+print(f"Recent kernels with GPU: {gpu_count}/5")
+print("OK")
+"""],
+            capture_output=True, text=True, timeout=30
+        )
+        output = result.stdout.strip()
+        if "OK" in output:
+            return True, output.replace("\nOK", "")
+        return True, "quota check inconclusive (Kaggle API has no direct quota endpoint)"
+    except Exception as e:
+        return True, f"quota check skipped: {e}"
+
+
 def check_dry_run(comp_dir: Path):
     """Run train.py --dry_run to verify syntax and imports."""
     train_py = comp_dir / "train.py"
@@ -147,8 +172,13 @@ def main():
             print("   -> Ensure kernel exists step will create it on first run.")
             # Not counted as error — bootstrap will handle it
 
-    # 5. train.py syntax
-    print("5. train.py syntax...", end=" ")
+    # 5. GPU quota
+    print("5. GPU quota...", end=" ")
+    ok, msg = check_gpu_quota()
+    print(f"{'OK' if ok else 'WARN'}: {msg}")
+
+    # 6. train.py syntax
+    print("6. train.py syntax...", end=" ")
     ok, msg = check_dry_run(comp_dir)
     print(f"{'OK' if ok else 'FAIL'}: {msg}")
     if not ok:

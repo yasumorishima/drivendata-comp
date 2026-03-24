@@ -72,7 +72,7 @@ if torch.cuda.is_available():
     except Exception as e:
         errors.append(f"CUDA smoke test failed: {e}")
 else:
-    print("WARNING: No CUDA GPU detected. Running on CPU (slower).")
+    errors.append("No CUDA GPU detected.")
 
 disk = shutil.disk_usage("/kaggle/working")
 print(f"Disk free: {disk.free / 1024**3:.1f} GB")
