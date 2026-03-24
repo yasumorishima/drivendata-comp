@@ -66,49 +66,37 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           COMP_DIR="${{ inputs.competition_dir }}"
-          ERRORS=0
 
-          # 1. Secrets check
-          echo "=== 1. Secrets check ==="
+          # Secrets check (CI-only, not in preflight.py)
+          ERRORS=0
           for VAR in KAGGLE_USERNAME KAGGLE_KEY GH_PAT; do
             if [ -z "${!VAR}" ]; then
               echo "FAIL: $VAR not set"
               ERRORS=$((ERRORS+1))
             fi
           done
-          [ $ERRORS -eq 0 ] && echo "OK: All secrets present"
+          if [ $ERRORS -gt 0 ]; then exit 1; fi
+          echo "OK: All secrets present"
 
-          # 2. Kaggle auth test
-          echo "=== 2. Kaggle auth test ==="
+          # Setup Kaggle credentials for preflight.py
           mkdir -p ~/.kaggle
           echo "{\"username\":\"$KAGGLE_USERNAME\",\"key\":\"$KAGGLE_KEY\"}" > ~/.kaggle/kaggle.json
           chmod 600 ~/.kaggle/kaggle.json
-          kaggle kernels list --mine --page-size 1 > /dev/null 2>&1 || { echo "FAIL: Kaggle auth"; ERRORS=$((ERRORS+1)); }
-          echo "OK: Kaggle auth works"
 
-          # 3. Config files check
-          echo "=== 3. Config check ==="
-          for F in "$COMP_DIR/drivendata-config.json" "$COMP_DIR/kernel-metadata.json" "$COMP_DIR/train.py"; do
-            if [ ! -f "$F" ]; then
-              echo "FAIL: $F not found"
-              ERRORS=$((ERRORS+1))
-            fi
-          done
+          # Run shared preflight script (same as local)
+          python3 scripts/preflight.py "$COMP_DIR"
 
-          # 4. Kernel ID slug check
-          echo "=== 4. Kernel ID slug check ==="
-          if [ -f "$COMP_DIR/kernel-metadata.json" ]; then
-            KID=$(python3 -c "import json; print(json.load(open('$COMP_DIR/kernel-metadata.json')).get('id',''))")
-            KTITLE=$(python3 -c "import json; print(json.load(open('$COMP_DIR/kernel-metadata.json')).get('title',''))")
-            echo "Kernel ID: $KID, Title: $KTITLE"
-          fi
-
-          # 5. GitHub Release permission check (contents: write)
-          echo "=== 5. Release permission check ==="
-          echo "permissions.contents: write is set in workflow"
-
-          echo "=== Preflight: $ERRORS errors ==="
-          if [ $ERRORS -gt 0 ]; then exit 1; fi
+          # Extract kernel existence for downstream steps
+          KID=$(python3 -c "import json; print(json.load(open('$COMP_DIR/kernel-metadata.json')).get('id',''))")
+          KERNEL_EXISTS=$(python3 -c "
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          api = KaggleApi(); api.authenticate()
+          try:
+              api.kernels_status('$KID'); print('yes')
+          except Exception:
+              print('no')
+          " 2>&1)
+          echo "KERNEL_EXISTS=$KERNEL_EXISTS" >> "$GITHUB_ENV"
 
       - name: Dry-run smoke test (CPU)
         run: |
@@ -170,44 +158,90 @@ jobs:
           KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
           KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
         run: |
-          KERNEL_ID="${{ steps.config.outputs.kernel_id }}"
-          NB_DIR="${{ inputs.competition_dir }}"
+          export KERNEL_ID="${{ steps.config.outputs.kernel_id }}"
+          export NB_DIR="${{ inputs.competition_dir }}"
 
-          python3 << PYEOF
-          import json, os
+          if [ "$KERNEL_EXISTS" = "yes" ]; then
+            echo "Kernel '$KERNEL_ID' already exists. Skipping bootstrap."
+            exit 0
+          fi
 
-          kernel_id = "$KERNEL_ID"
-          nb_dir = "$NB_DIR"
+          echo "Kernel '$KERNEL_ID' does not exist. Creating via REST API..."
 
-          # Check via Python API (proven to work for existing kernels)
-          from kaggle.api.kaggle_api_extended import KaggleApi
-          api = KaggleApi()
-          api.authenticate()
+          python3 -c "
+          import json, os, sys, time, urllib.request, urllib.error, base64
+
+          kernel_id = os.environ['KERNEL_ID']
+          nb_dir = os.environ['NB_DIR']
+          username = os.environ['KAGGLE_USERNAME']
+          key = os.environ['KAGGLE_KEY']
+
+          if not kernel_id or '/' not in kernel_id:
+              print(f'ERROR: Invalid kernel ID: {kernel_id!r}')
+              sys.exit(1)
+
+          slug = kernel_id.split('/', 1)[1]
+
+          nb_file = os.path.join(nb_dir, 'train_kaggle.ipynb')
+          if not os.path.exists(nb_file):
+              print(f'ERROR: Notebook not found: {nb_file}')
+              sys.exit(1)
+
+          with open(nb_file) as f:
+              notebook_content = f.read()
+
+          meta_file = os.path.join(nb_dir, 'kernel-metadata.json')
+          with open(meta_file) as f:
+              meta = json.load(f)
+
+          payload = json.dumps({
+              'newTitle': meta.get('title', slug),
+              'text': notebook_content,
+              'language': 'python',
+              'kernelType': 'notebook',
+              'isPrivate': True,
+              'enableGpu': meta.get('enable_gpu', 'false') == 'true',
+              'enableTpu': meta.get('enable_tpu', 'false') == 'true',
+              'enableInternet': meta.get('enable_internet', 'false') == 'true',
+              'datasetDataSources': [],
+              'competitionDataSources': [],
+              'kernelDataSources': [],
+              'modelDataSources': [],
+              'categoryIds': [],
+          }).encode()
+
+          auth = base64.b64encode(f'{username}:{key}'.encode()).decode()
+          req = urllib.request.Request(
+              'https://www.kaggle.com/api/v1/kernels/push',
+              data=payload,
+              headers={
+                  'Content-Type': 'application/json',
+                  'Authorization': f'Basic {auth}',
+              },
+              method='POST',
+          )
 
           try:
+              resp = urllib.request.urlopen(req)
+              result = json.loads(resp.read().decode())
+              print(f'Kernel created successfully: {result}')
+          except urllib.error.HTTPError as e:
+              body = e.read().decode()
+              print(f'ERROR: Kernel creation failed (HTTP {e.code}): {body}')
+              sys.exit(1)
+
+          print('Waiting 60s for Kaggle to register kernel...')
+          time.sleep(60)
+
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          api = KaggleApi(); api.authenticate()
+          try:
               api.kernels_status(kernel_id)
-              print(f"Kernel '{kernel_id}' exists.")
+              print(f'Verified: kernel {kernel_id!r} now exists.')
           except Exception as e:
-              if "404" not in str(e) and "Not Found" not in str(e):
-                  # Non-404 error (auth issue etc) — don't mask it
-                  raise
-              print(f"Kernel '{kernel_id}' not found. Attempting first push to create...")
-              # For new kernels, kaggle kernels push may return "Notebook not found".
-              # Just let the main push step handle it — if it fails, the workflow
-              # will report the actual error. Don't block existing kernels here.
-              import subprocess
-              result = subprocess.run(
-                  ["kaggle", "kernels", "push", "-p", nb_dir],
-                  capture_output=True, text=True
-              )
-              print(f"Push output: {result.stdout.strip()}")
-              if result.returncode != 0:
-                  print(f"Push stderr: {result.stderr.strip()}")
-                  print("WARNING: Initial push may have failed. Main push step will retry.")
-              else:
-                  print("Bootstrap push succeeded. Waiting 60s...")
-                  import time; time.sleep(60)
-          PYEOF
+              print(f'ERROR: Kernel still not found after creation: {e}')
+              sys.exit(1)
+          "
 
       - name: Push and poll with GPU fallback
         env:
@@ -242,7 +276,18 @@ jobs:
             for i in $(seq 1 20); do
               RAW=$(check_status)
               echo "Pre-push check $i/20: $RAW"
-              if echo "$RAW" | grep -qiE "COMPLETE|ERROR|CANCEL|CHECK_ERROR"; then
+              # CHECK_ERROR with 404 = kernel doesn't exist yet (OK for first push)
+              # CHECK_ERROR with other = real problem → abort
+              if echo "$RAW" | grep -q "CHECK_ERROR"; then
+                if echo "$RAW" | grep -qiE "404|Not Found"; then
+                  echo "Kernel not found (expected for new kernels)."
+                  return 0
+                else
+                  echo "ERROR: Unexpected API error: $RAW"
+                  return 1
+                fi
+              fi
+              if echo "$RAW" | grep -qiE "COMPLETE|ERROR|CANCEL"; then
                 return 0
               fi
               echo "Kernel still running, waiting 30s..."
@@ -316,6 +361,14 @@ jobs:
           PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
           echo "Push output: $PUSH_OUTPUT"
 
+          # Fatal push errors — abort immediately, no fallback
+          if echo "$PUSH_OUTPUT" | grep -qiE "Notebook not found|Kernel must be specified|Invalid kernel"; then
+            echo "ERROR: Push rejected by Kaggle API. Kernel does not exist or ID is invalid."
+            echo "Push output: $PUSH_OUTPUT"
+            echo "Fix: Verify kernel-metadata.json 'id' field and run 'Ensure kernel exists' step."
+            exit 1
+          fi
+
           # Check if push itself was rejected due to GPU quota/session limit
           GPU_QUOTA_HIT=false
           SESSION_LIMIT_HIT=false
@@ -367,7 +420,13 @@ jobs:
             -d '{"content": "⚠️ **GPU失敗 → CPUフォールバック**\nKernel: `'"$KERNEL_ID"'`\n理由: '"${FAILURE_MSG:-unknown}"'\nCPUで再実行します。"}' || true
 
           wait_for_idle
-          kaggle kernels push -p "$NB_DIR"
+          CPU_PUSH_OUTPUT=$(kaggle kernels push -p "$NB_DIR" 2>&1) || true
+          echo "CPU push output: $CPU_PUSH_OUTPUT"
+
+          if echo "$CPU_PUSH_OUTPUT" | grep -qiE "Notebook not found|Kernel must be specified|Invalid kernel"; then
+            echo "ERROR: CPU push also rejected. Kernel does not exist."
+            exit 1
+          fi
 
           if poll_until_done; then
             echo "Success on CPU fallback."
