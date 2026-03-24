@@ -410,6 +410,17 @@ jobs:
 
           echo "Release created: $TAG"
 
+      - name: Auto-trigger Package Submission
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          echo "Triggering Package DrivenData Submission..."
+          gh workflow run "Package DrivenData Submission" \
+            -f competition_dir="${{ inputs.competition_dir }}" \
+            -f model_release_tag="${{ inputs.model_release_tag }}" \
+            -f memo="${{ inputs.memo }}"
+          echo "Package workflow triggered!"
+
       - name: Sync W&B offline runs
         env:
           WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
