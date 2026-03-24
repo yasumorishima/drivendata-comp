@@ -306,6 +306,7 @@ def dry_run(model_name: str = "facebook/wav2vec2-base"):
         pad_token_id=processor.tokenizer.pad_token_id,
         vocab_size=len(processor.tokenizer),
         mask_time_prob=0.0,
+        ignore_mismatched_sizes=True,
     )
     model.freeze_feature_encoder()
     model.to(device)
@@ -476,6 +477,7 @@ def main():
         pad_token_id=processor.tokenizer.pad_token_id,
         vocab_size=len(processor.tokenizer),
         mask_time_prob=0.0,
+        ignore_mismatched_sizes=True,
     )
     model.freeze_feature_encoder()
     # Gradient checkpointing: enable on GPU (saves ~40% VRAM), disable on TPU (incompatible)

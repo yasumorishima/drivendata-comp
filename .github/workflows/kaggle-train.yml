@@ -166,53 +166,66 @@ jobs:
           kaggle kernels list --mine --page-size 1 || { echo "ERROR: Kaggle auth failed"; exit 1; }
 
       - name: Ensure kernel exists on Kaggle
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
         run: |
           KERNEL_ID="${{ steps.config.outputs.kernel_id }}"
           NB_DIR="${{ inputs.competition_dir }}"
-          METADATA="$NB_DIR/kernel-metadata.json"
+
+          python3 << PYEOF
+          import json, os, requests
+
+          kernel_id = "$KERNEL_ID"
+          username = os.environ["KAGGLE_USERNAME"]
+          key = os.environ["KAGGLE_KEY"]
 
           # Check if kernel exists via status API
-          EXISTS=$(python3 -c "
-          from kaggle.api.kaggle_api_extended import KaggleApi
-          api = KaggleApi()
-          api.authenticate()
-          try:
-              api.kernels_status('$KERNEL_ID')
-              print('yes')
-          except Exception:
-              print('no')
-          " 2>&1)
+          resp = requests.get(
+              f"https://www.kaggle.com/api/v1/kernels/{kernel_id}",
+              auth=(username, key)
+          )
+          if resp.status_code == 200:
+              print(f"Kernel '{kernel_id}' already exists.")
+          else:
+              print(f"Kernel '{kernel_id}' not found (HTTP {resp.status_code}). Creating via REST API...")
+              nb_dir = "$NB_DIR"
+              meta_path = os.path.join(nb_dir, "kernel-metadata.json")
+              with open(meta_path) as f:
+                  meta = json.load(f)
+              nb_path = os.path.join(nb_dir, meta["code_file"])
+              with open(nb_path) as f:
+                  nb_text = f.read()
 
-          if [ "$EXISTS" = "yes" ]; then
-            echo "Kernel '$KERNEL_ID' already exists on Kaggle."
-          else
-            echo "Kernel '$KERNEL_ID' does not exist. Creating bootstrap..."
-            # Temporarily set id to INSERT_KERNEL_SLUG_HERE for initial creation
-            ORIG_ID="$KERNEL_ID"
-            python3 -c "
-          import json
-          with open('$METADATA') as f:
-              meta = json.load(f)
-          meta['id'] = 'INSERT_KERNEL_SLUG_HERE'
-          with open('$METADATA', 'w') as f:
-              json.dump(meta, f, indent=2)
-          "
-            # Push to create the kernel
-            kaggle kernels push -p "$NB_DIR"
-            echo "Bootstrap push done. Waiting 30s for Kaggle to register..."
-            sleep 30
+              # Create new kernel via REST API (no id = auto-create with slug from title)
+              payload = {
+                  "newTitle": meta["title"],
+                  "text": nb_text,
+                  "language": meta.get("language", "python"),
+                  "kernelType": meta.get("kernel_type", "notebook"),
+                  "isPrivate": str(meta.get("is_private", "true")).lower() == "true",
+                  "enableGpu": str(meta.get("enable_gpu", "false")).lower() == "true",
+                  "enableInternet": str(meta.get("enable_internet", "false")).lower() == "true",
+                  "categoryIds": [],
+                  "datasetDataSources": [],
+                  "competitionDataSources": [],
+                  "kernelDataSources": [],
+              }
+              resp = requests.post(
+                  "https://www.kaggle.com/api/v1/kernels/push",
+                  auth=(username, key),
+                  json=payload
+              )
+              if resp.status_code == 200:
+                  result = resp.json()
+                  print(f"Kernel created: {result}")
+              else:
+                  print(f"ERROR: Kernel creation failed (HTTP {resp.status_code}): {resp.text}")
+                  exit(1)
 
-            # Restore original id
-            python3 -c "
-          import json
-          with open('$METADATA') as f:
-              meta = json.load(f)
-          meta['id'] = '$ORIG_ID'
-          with open('$METADATA', 'w') as f:
-              json.dump(meta, f, indent=2)
-          "
-            echo "Kernel created, id restored to '$ORIG_ID'."
-          fi
+              print("Waiting 30s for Kaggle to register...")
+              import time; time.sleep(30)
+          PYEOF
 
       - name: Push and poll with GPU fallback
         env:
