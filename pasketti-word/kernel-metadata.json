@@ -1,6 +1,6 @@
 {
   "id": "yasunorim/drivendata-word-track-training",
-  "title": "drivendata-word-track-training",
+  "title": "DD Word ASR Training",
   "code_file": "train_kaggle.ipynb",
   "language": "python",
   "kernel_type": "notebook",
