@@ -63,17 +63,16 @@ if torch.cuda.is_available():
     cap = torch.cuda.get_device_capability(0)
     cap_str = f"{cap[0]}.{cap[1]}"
     print(f"GPU: {gpu_name} (sm_{cap[0]}{cap[1]}, compute {cap_str})")
-    print(f"VRAM: {torch.cuda.get_device_properties(0).total_mem / 1024**2:.0f} MB")
+    print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**2:.0f} MB")
     min_cap = (7, 0)
     if cap < min_cap:
-        errors.append(f"GPU compute capability {cap_str} < {min_cap[0]}.{min_cap[1]} — PyTorch {torch.__version__} does not support this GPU.")
-    else:
-        try:
-            x = torch.randn(2, 2, device="cuda")
-            _ = x @ x
-            print("CUDA smoke test: OK")
-        except Exception as e:
-            errors.append(f"CUDA smoke test failed: {e}")
+        print(f"WARNING: GPU compute capability {cap_str} < {min_cap[0]}.{min_cap[1]} — may have limited PyTorch support")
+    try:
+        x = torch.randn(2, 2, device="cuda")
+        _ = x @ x
+        print("CUDA smoke test: OK")
+    except Exception as e:
+        errors.append(f"CUDA smoke test failed: {e}")
 else:
     errors.append("No CUDA GPU detected.")
 
