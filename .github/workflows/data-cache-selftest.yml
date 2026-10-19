@@ -1,0 +1,50 @@
+name: Data Cache Selftest
+
+# tools/local_push.sh → 下書きリリース → tools/cloud_setup.sh の往復を、
+# 本物のデータを使わずに確かめる（分割も 1MB 単位で試す）。タグは data-cache-selftest（本番と別）。
+# 起動: requests/selftest-data.json を push。{"memo": "...", "cleanup": false}
+#   cleanup: true なら試験用の下書きリリースを消して終わる。
+# cloud からの取得も試すときは、cleanup:false で走らせたあと cloud で
+#   DD_TAG=data-cache-selftest bash tools/cloud_setup.sh selftest
+
+on:
+  push:
+    paths:
+      - 'requests/selftest-data.json'
+
+permissions:
+  contents: write
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DD_REPO: ${{ github.repository }}
+      DD_TAG: data-cache-selftest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mode
+        id: mode
+        run: echo "cleanup=$(jq -r '.cleanup // false' requests/selftest-data.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Round trip
+        if: steps.mode.outputs.cleanup != 'true'
+        run: |
+          set -euo pipefail
+          gh release delete "$DD_TAG" -y --cleanup-tag 2> /dev/null || true
+          src=$RUNNER_TEMP/src; mkdir -p "$src"
+          head -c 3500000 /dev/urandom > "$src/big.bin"
+          echo hello > "$src/small.txt"
+          DD_PART_MB=1 bash tools/local_push.sh selftest "$src"
+          gh release view "$DD_TAG" --json assets --jq '.assets[] | "\(.name)\t\(.size)"'
+          DD_ENV=$RUNNER_TEMP/env bash tools/cloud_setup.sh selftest
+          cmp "$src/big.bin" "$RUNNER_TEMP/env/data/selftest/big.bin"
+          cmp "$src/small.txt" "$RUNNER_TEMP/env/data/selftest/small.txt"
+          echo "SELFTEST OK"
+
+      - name: Cleanup
+        if: steps.mode.outputs.cleanup == 'true'
+        run: gh release delete "$DD_TAG" -y --cleanup-tag || true

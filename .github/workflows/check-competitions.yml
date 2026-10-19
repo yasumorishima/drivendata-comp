@@ -49,19 +49,22 @@ jobs:
               r'\s+data-total_prize_purse="([^"]*)"'
           )
 
-          title_pattern = re.compile(
-              r"href='(/competitions/[^']+/)'\s*class=\"text-decoration-none\">\s*\n*\s*([^<]+)"
+          # Look for the title, link and category inside each panel's own HTML, so a
+          # layout change cannot shift titles onto the wrong competition.
+          link_pattern = re.compile(
+              r"""href=["'](/competitions/\d+/[^"'#?]+/)["'][^>]*>(.*?)</a>""", re.S
           )
-          category_pattern = re.compile(
-              r'href="/competitions/search/\?category=([^"]+)"'
-          )
+          heading_pattern = re.compile(r"<h[1-6][^>]*>(.*?)</h[1-6]>", re.S)
+          category_pattern = re.compile(r"""category=([^"'&]+)""")
+
+          def text_of(fragment):
+              return " ".join(html_mod.unescape(re.sub(r"<[^>]+>", " ", fragment)).split())
 
           panels = list(panel_pattern.finditer(section))
-          titles = list(title_pattern.finditer(section))
-          categories = list(category_pattern.finditer(section))
-
           comps = []
           for i, panel in enumerate(panels):
+              chunk_end = panels[i + 1].start() if i + 1 < len(panels) else len(section)
+              chunk = section[panel.start():chunk_end]
               start_date = panel.group(1)  # e.g. "20260130"
               raw_deadline = panel.group(2)  # e.g. "-120260406"
               joined = int(panel.group(3))
@@ -86,19 +89,26 @@ jobs:
               except (ValueError, TypeError):
                   prize_str = "-"
 
-              # Title and URL
-              if i < len(titles):
-                  url_path = titles[i].group(1)
-                  title = html_mod.unescape(titles[i].group(2).strip())
-              else:
-                  url_path = ""
+              # Title and URL: the first competition link with visible text, else a heading
+              url_path, title = "", ""
+              for m in link_pattern.finditer(chunk):
+                  url_path = url_path or m.group(1)
+                  if text_of(m.group(2)):
+                      url_path, title = m.group(1), text_of(m.group(2))
+                      break
+              if not title:
+                  h = heading_pattern.search(chunk)
+                  title = text_of(h.group(1)) if h else ""
+              if not title and url_path:
+                  title = url_path.rstrip("/").split("/")[-1].replace("-", " ")
+              if not title:
                   title = "(unknown)"
+                  # leave a trimmed sample in the log so the pattern can be fixed from it
+                  print(f"::warning::no title in panel {i}; first 1500 chars:")
+                  print(re.sub(r"\s+", " ", chunk)[:1500])
 
-              # Category
-              if i < len(categories):
-                  category = categories[i].group(1)
-              else:
-                  category = "-"
+              cm = category_pattern.search(chunk)
+              category = cm.group(1) if cm else "-"
 
               comps.append({
                   "title": title,

@@ -10,25 +10,29 @@ set -euo pipefail
 
 REPO="${DD_REPO:-yasumorishima/drivendata-comp}"
 ENVD="${DD_ENV:-$HOME/drivendata-env}"
-TAG=data-cache
+TAG="${DD_TAG:-data-cache}"
 mkdir -p "$ENVD/data" "$ENVD/dl"
 
 rel=$(gh api "repos/$REPO/releases?per_page=100")
-id=$(printf '%s' "$rel" | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin) if x.get("draft") and x.get("tag_name")=="data-cache"]; print(r[0]["id"] if r else "")')
+id=$(printf '%s' "$rel" | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin) if x.get("draft") and x.get("tag_name")==sys.argv[1]]; print(r[0]["id"] if r else "")' "$TAG")
 [ -n "$id" ] || { echo "no draft release data-cache: push requests/data-cache.json or run tools/local_push.sh on the PC"; exit 1; }
-assets=$(gh api "repos/$REPO/releases/$id/assets?per_page=100" --paginate)
+assets=$(gh api "repos/$REPO/releases/$id/assets?per_page=100" --paginate --jq '.[] | {id, size, name} | tostring')
 
 want=("$@")
 names=$(printf '%s' "$assets" | python3 -c '
 import json,sys
 want=set(sys.argv[1:])
-for a in json.load(sys.stdin):
-    n=a["name"]
+for line in sys.stdin:
+    if not line.strip(): continue
+    a=json.loads(line); n=a["name"]
     if "__" in n and (not want or n.split("__",1)[0] in want):
         print(a["id"], a["size"], n)' "${want[@]}")
 
 fetch() {  # asset-id out-file   (curl: release files are served from another host)
-  curl -fsSL --retry 3 --max-time 3600 -H "Accept: application/octet-stream" \
+  # in the cloud the agent proxy adds the credential; on Actions/PC pass the token
+  local auth=()
+  [ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ] && auth=(-H "Authorization: Bearer ${GH_TOKEN:-${GITHUB_TOKEN:-}}")
+  curl -fsSL --retry 3 --max-time 3600 "${auth[@]}" -H "Accept: application/octet-stream" \
        "https://api.github.com/repos/$REPO/releases/assets/$1" -o "$2"
 }
 

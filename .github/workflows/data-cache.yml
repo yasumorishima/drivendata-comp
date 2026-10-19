@@ -53,13 +53,6 @@ jobs:
           pip install --quiet playwright
           python -m playwright install --with-deps chromium
 
-      - name: Ensure draft release
-        run: |
-          if ! gh release view "$TAG" > /dev/null 2>&1; then
-            gh release create "$TAG" --draft --title data-cache \
-              --notes "DrivenData 配布データの受け渡し用（下書き・非公開）。公開しないこと。"
-          fi
-
       - name: Download and upload, one competition at a time
         env:
           DRIVENDATA_EMAIL: ${{ secrets.DRIVENDATA_EMAIL }}
@@ -71,24 +64,12 @@ jobs:
           echo "$comps" | jq -c '.[]' | while read -r c; do
             name=$(echo "$c" | jq -r .name)
             echo "=== $name ==="
-            rm -rf data && mkdir -p up
+            rm -rf data
             DD_COMPETITIONS="[$c]" DOWNLOAD_DIR=data python scripts/download_data.py || echo "::warning::download failed for $name"
             [ -d "data/$name" ] || continue
-            sums="up/${name}__SHA256SUMS.txt"; : > "$sums"
-            for f in data/"$name"/*; do
-              [ -f "$f" ] || continue
-              base="${name}__$(basename "$f")"
-              # hash of the whole file (cloud_setup.sh joins parts before checking)
-              echo "$(sha256sum "$f" | cut -d' ' -f1)  $base" >> "$sums"
-              if [ "$(stat -c %s "$f")" -gt 1990000000 ]; then
-                split -b 1900M -d -a 2 "$f" "up/$base.part"
-                rm -f "$f"
-              else
-                mv "$f" "up/$base"
-              fi
-            done
-            for a in up/*; do gh release upload "$TAG" "$a" --clobber; done
-            rm -rf up data
+            # same upload path as the PC (split > 1900MB, <name>__SHA256SUMS.txt)
+            DD_REPO="${{ github.repository }}" DD_TAG="$TAG" bash tools/local_push.sh "$name" "data/$name"
+            rm -rf data
           done
 
       - name: List assets
