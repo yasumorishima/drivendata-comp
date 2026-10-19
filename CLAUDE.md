@@ -32,7 +32,8 @@
 - 使えるワークフローは `.github/workflows/cloud-dispatch.yml` の `ALLOWED`。
 - dispatch される側のファイルは **master にも存在する必要がある**（GitHub の仕様）。新しいワークフローを作ったら master に入れてから使う。
   `data-cache.yml` は push で直接動くので master 不要。
-- 結果は GitHub MCP（`actions_list` / `get_job_logs`）か `gh api repos/yasumorishima/drivendata-comp/actions/runs` で読む。
+- 状態は `gh api repos/yasumorishima/drivendata-comp/actions/runs` で読める。
+- **ログは GitHub MCP の `get_job_logs`（`return_content: true`）で読む**（`gh api .../logs` は保存先の Azure が 403）。
 
 ## データ（cloud のコンテナで使う）
 
@@ -62,8 +63,10 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 - **On Top of Pasketti（子どもの音声認識）は 2026-04-06 に締切済み。** 最終順位は未記録（Phonetic は提出時点で 63/65）。
   - 最後の作業は 2026-03-24（Word Track の Kaggle GPU 学習の調整中で止まっている）。
 - cloud 対応を追加（このファイル・`Cloud Dispatch`・`Data Cache`・`tools/cloud_setup.sh`・`tools/local_push.sh`・`notes/`）。
-  - ⚠️ `Cloud Dispatch` と `Data Cache` は**まだ一度も実走していない**。初回で落ちたら自分で直す。
-  - `Cloud Dispatch` で既存ワークフローを起動するには、この変更が master に入っている必要がある。
+  - ✅ `Cloud Dispatch` は 10-19 に実走確認（作業ブランチから `check-competitions.yml` を起動して成功）。
+  - ⚠️ `Data Cache` と `tools/cloud_setup.sh`・`tools/local_push.sh` は**まだ実走していない**。初回で落ちたら自分で直す。
+- 開催中コンペ（10-19 の Check Competitions）：8 件。賞金つきは **energy・$300,000・締切 2026-12-03・参加 665** の 1 件。
+  - ⚠️ スクリプトのタイトル抽出が壊れていて名前が `(unknown)`（DrivenData の HTML が変わった）。直すなら `check-competitions.yml` の正規表現。
 
 ## 次の一手
 
