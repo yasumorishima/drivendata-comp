@@ -1,0 +1,58 @@
+name: Cloud Dispatch
+
+# Claude Code cloud セッションは workflow_dispatch を叩けない（403）ので、
+# requests/dispatch*.json を push するとこのジョブが代わりに `gh workflow run` する。
+#
+# 書式（requests/dispatch.json）:
+#   {
+#     "workflow": "kaggle-train.yml",          # 下の ALLOWED のどれか
+#     "inputs": {"competition_dir": "pasketti-phonetic", "model_release_tag": "x", "memo": "なぜ回すか"}
+#   }
+# - 対象のワークフローは push したブランチの版で走る（--ref）。
+#   ただし dispatch される側は master にも同じファイルが無いと GitHub が受け付けない。
+# - 同じ中身を再 push しても動かない（変更が無いので）。memo を変えること。
+# - 結果は GitHub MCP の actions_list / get_job_logs で読む。
+
+on:
+  push:
+    paths:
+      - 'requests/dispatch*.json'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ALLOWED: >-
+        check-competitions.yml download-data.yml drivendata-train.yml
+        kaggle-train.yml kaggle-tpu-train.yml package-submission.yml data-cache.yml
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Dispatch each changed request
+        run: |
+          set -euo pipefail
+          before="${{ github.event.before }}"
+          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            files=$(ls requests/dispatch*.json 2>/dev/null || true)
+          else
+            files=$(git diff --name-only --diff-filter=AM "$before" "${{ github.sha }}" -- 'requests/dispatch*.json')
+          fi
+          [ -n "$files" ] || { echo "no request changed"; exit 0; }
+          for f in $files; do
+            echo "=== $f ==="
+            wf=$(jq -r '.workflow' "$f")
+            case " $ALLOWED " in *" $wf "*) ;; *) echo "::error::$wf is not allowed"; exit 1;; esac
+            args=()
+            while IFS=$'\t' read -r k v; do args+=(-f "$k=$v"); done \
+              < <(jq -r '.inputs // {} | to_entries[] | [.key, (.value|tostring)] | @tsv' "$f")
+            echo "gh workflow run $wf --ref ${{ github.ref_name }} ${args[*]}"
+            gh workflow run "$wf" --ref "${{ github.ref_name }}" "${args[@]}"
+          done

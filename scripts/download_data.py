@@ -12,6 +12,11 @@ COMPETITIONS = {
     "word": {"id": 308, "slug": "childrens-word-asr"},
     "phonetic": {"id": 309, "slug": "childrens-phonetic-asr"},
 }
+# Override with DD_COMPETITIONS='[{"name": "x", "id": 123, "slug": "some-comp"}]'
+if os.environ.get("DD_COMPETITIONS"):
+    import json
+    COMPETITIONS = {c["name"]: {"id": c["id"], "slug": c["slug"]}
+                    for c in json.loads(os.environ["DD_COMPETITIONS"])}
 DOWNLOAD_DIR = Path(os.environ.get("DOWNLOAD_DIR", "data"))
 
 # File extensions that indicate real downloads

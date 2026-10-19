@@ -1,0 +1,96 @@
+name: Data Cache (for cloud sessions)
+
+# DrivenData の配布データを、この repo の「下書きリリース data-cache」に置く。
+# cloud セッションは www.drivendata.org に届かない（proxy で 403）が、
+# 自分の repo のリリース添付は取れるので、ここを受け渡し場所にする。
+#   - 下書きリリースは repo に push 権限のある人にしか見えない（公開されない）。
+#   - データを git や公開リリースに入れない（DrivenData の規約で再配布禁止）。
+#   - 2GB を超えるファイルは 1900MB ごとに分割して上げる（<file>.partNN）。
+#     cloud 側は tools/cloud_setup.sh が結合と sha256 確認をする。
+#
+# 起動: requests/data-cache.json を push（cloud から）または workflow_dispatch。
+#   {"memo": "なぜ取るか", "competitions": [{"name": "word", "id": 308, "slug": "childrens-word-asr"}]}
+# 資産名は "<name>__<file>"。ランナーの空きは約 14GB なので 1 コンペずつ取って上げて消す。
+
+on:
+  workflow_dispatch:
+    inputs:
+      memo:
+        description: 'この実行の意図（必須）'
+        required: true
+        type: string
+      competitions:
+        description: 'JSON 配列 [{"name","id","slug"}]（空なら requests/data-cache.json）'
+        required: false
+        type: string
+  push:
+    paths:
+      - 'requests/data-cache.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-cache
+  cancel-in-progress: false
+
+jobs:
+  cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: data-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright
+        run: |
+          pip install --quiet playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Ensure draft release
+        run: |
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --draft --title data-cache \
+              --notes "DrivenData 配布データの受け渡し用（下書き・非公開）。公開しないこと。"
+          fi
+
+      - name: Download and upload, one competition at a time
+        env:
+          DRIVENDATA_EMAIL: ${{ secrets.DRIVENDATA_EMAIL }}
+          DRIVENDATA_PASSWORD: ${{ secrets.DRIVENDATA_PASSWORD }}
+          COMPS_INPUT: ${{ inputs.competitions }}
+        run: |
+          set -euo pipefail
+          if [ -n "${COMPS_INPUT:-}" ]; then comps="$COMPS_INPUT"; else comps=$(jq -c '.competitions' requests/data-cache.json); fi
+          echo "$comps" | jq -c '.[]' | while read -r c; do
+            name=$(echo "$c" | jq -r .name)
+            echo "=== $name ==="
+            rm -rf data && mkdir -p up
+            DD_COMPETITIONS="[$c]" DOWNLOAD_DIR=data python scripts/download_data.py || echo "::warning::download failed for $name"
+            [ -d "data/$name" ] || continue
+            sums="up/${name}__SHA256SUMS.txt"; : > "$sums"
+            for f in data/"$name"/*; do
+              [ -f "$f" ] || continue
+              base="${name}__$(basename "$f")"
+              # hash of the whole file (cloud_setup.sh joins parts before checking)
+              echo "$(sha256sum "$f" | cut -d' ' -f1)  $base" >> "$sums"
+              if [ "$(stat -c %s "$f")" -gt 1990000000 ]; then
+                split -b 1900M -d -a 2 "$f" "up/$base.part"
+                rm -f "$f"
+              else
+                mv "$f" "up/$base"
+              fi
+            done
+            for a in up/*; do gh release upload "$TAG" "$a" --clobber; done
+            rm -rf up data
+          done
+
+      - name: List assets
+        if: always()
+        run: gh release view "$TAG" --json assets --jq '.assets[] | "\(.name)\t\(.size)"' || true
