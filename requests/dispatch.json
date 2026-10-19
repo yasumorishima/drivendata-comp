@@ -1,2 +1,2 @@
 {"workflow": "check-competitions.yml",
- "inputs": {"memo": "cloud 対応の初回テスト：Cloud Dispatch 経由で開催中コンペ一覧を取る（2026-10-19）"}}
+ "inputs": {"memo": "コンペ名の抽出を直した版の確認（2026-10-19 2 回目）"}}
