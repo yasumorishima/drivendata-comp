@@ -66,7 +66,9 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
   - ✅ `Cloud Dispatch` は 10-19 に実走確認（作業ブランチから `check-competitions.yml` を起動して成功）。
   - ✅ `local_push.sh` → 下書きリリース → `cloud_setup.sh` の往復（1MB 分割つき）を 10-19 に確認。
     Actions 上（`Data Cache Selftest`）と、cloud からの取得の両方で一致。
-  - ⏳ `Data Cache`（DrivenData から Playwright で取得）の初回実走を phonetic で 10-19 に起動。
+  - ✅ `Data Cache` も 10-19 に phonetic で実走（ログイン→取得→下書きリリース→cloud で取り込み、まで通った）。
+    取れたのは提出フォーマット 2 つだけ。**Pasketti の学習音声は DrivenData ではなく TalkBank（別ログイン）で配布**
+    （`audio.zip`・`train_*_transcripts.jsonl`）なので、Playwright の対象外。要るなら user の PC から `local_push.sh` で上げてもらう。
 - 開催中コンペ（10-19 の Check Competitions・抽出を直した版）：8 件。
 
   | 締切 | 分野 | 賞金 | 参加 | コンペ |
