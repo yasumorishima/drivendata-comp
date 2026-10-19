@@ -58,18 +58,17 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 2. ローカルにだけあるデータ（DL 済みの配布物・学習済みモデル・提出 zip など）を `tools/local_push.sh` で `data-cache` に上げる。
 3. 何を上げたかを `notes/LOCAL_INVENTORY.md` に書いて push。
 
+## 🔴 締切済みのコンペは扱わない（2026-10-19 user 指示：「締切済みはどうでもいい」）
+
+- 開催中のコンペだけを見る。締切済みのコンペの順位の記録・データの回収・続きの作業はしない。提案もしない。
+- `pasketti-*/`（On Top of Pasketti、2026-04-06 締切）は過去の作業の跡。仕組み（GPU 学習・提出 zip・自動提出）を流用するときだけ参照する。
+- PC のメモも、開催中のコンペと流用できる仕組みに関係するものだけ集めればよい。
+
 ## 現在地（2026-10-19）
 
-- **On Top of Pasketti（子どもの音声認識）は 2026-04-06 に締切済み。** 最終順位は未記録（Phonetic は提出時点で 63/65）。
-  - 最後の作業は 2026-03-24（Word Track の Kaggle GPU 学習の調整中で止まっている）。
-- cloud 対応を追加（このファイル・`Cloud Dispatch`・`Data Cache`・`tools/cloud_setup.sh`・`tools/local_push.sh`・`notes/`）。
-  - ✅ `Cloud Dispatch` は 10-19 に実走確認（作業ブランチから `check-competitions.yml` を起動して成功）。
-  - ✅ `local_push.sh` → 下書きリリース → `cloud_setup.sh` の往復（1MB 分割つき）を 10-19 に確認。
-    Actions 上（`Data Cache Selftest`）と、cloud からの取得の両方で一致。
-  - ✅ `Data Cache` も 10-19 に phonetic で実走（ログイン→取得→下書きリリース→cloud で取り込み、まで通った）。
-    取れたのは提出フォーマット 2 つだけ。**Pasketti の学習音声は DrivenData ではなく TalkBank（別ログイン）で配布**
-    （`audio.zip`・`train_*_transcripts.jsonl`）なので、Playwright の対象外。要るなら user の PC から `local_push.sh` で上げてもらう。
-- 開催中コンペ（10-19 の Check Competitions・抽出を直した版）：8 件。
+- cloud 対応を追加（このファイル・`Cloud Dispatch`・`Data Cache`・`tools/cloud_setup.sh`・`tools/local_push.sh`・`notes/`）。全部 10-19 に実走で確認済み。
+  - `Data Cache` が取れるのは DrivenData のデータページから直接落とせるファイルだけ。外部サイト配布のデータ（別ログイン）は対象外。
+- 開催中コンペ（10-19 の Check Competitions）：8 件。
 
   | 締切 | 分野 | 賞金 | 参加 | コンペ |
   |---|---|---|---|---|
@@ -80,9 +79,9 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 
 ## 次の一手
 
-1. user に PC 側の受け渡し（`notes/LOCAL_HANDOFF.md`）をお願いし、届いたメモを読んでこのファイルに反映する。
-2. 開催中の DrivenData コンペを確認する：`requests/dispatch.json` に `{"workflow": "check-competitions.yml", "inputs": {"memo": "..."}}`。
-3. 参加するコンペが決まったら `template/` か `gpu-template/` から `<コンペ>/` を作り、`<コンペ>/CLAUDE.md` に「🎯 上位への道筋」を書く。
+1. 参加するコンペを決める（賞金つきで開催中なのは GEMS Prize のみ。締切まで約 6 週間）。
+2. 決めたら `template/` か `gpu-template/` から `<コンペ>/` を作り、`<コンペ>/CLAUDE.md` に「🎯 上位への道筋」を書く。
+3. PC 側の受け渡し（`notes/LOCAL_HANDOFF.md`）は、開催中のコンペに関係するメモがあるときだけ。
 
 ## commit のルール
 

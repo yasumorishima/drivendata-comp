@@ -10,8 +10,8 @@ DrivenData の作業を cloud の Claude Code セッションで続けられる�
 この PC にある DrivenData 関係のメモとデータを cloud から見える場所へ移してください。
 
 1. 探す
-   - この repo の外も含めて、DrivenData / Pasketti / childrens-*-asr / 子ども音声 などに関係する
-     メモ・ノート・実験記録・Notebook・スクリーンショット・設定ファイル・データ・モデル・提出 zip を探す。
+   - この repo の外も含めて、DrivenData の開催中のコンペ（締切済みのものは不要）や、
+     学習・提出の自動化の仕組みに関係するメモ・ノート・実験記録・Notebook・スクリーンショット・設定ファイル・データ・モデル・提出 zip を探す。
      候補：ホーム直下、Documents、Desktop、Downloads、~/.claude 配下のメモ、Colab の DL 物、Obsidian 等。
    - 見つけたものを「メモ類」と「データ類」に分け、パス・サイズの一覧を先に私に見せて確認を取る。
 
@@ -25,7 +25,7 @@ DrivenData の作業を cloud の Claude Code セッションで続けられる�
    - git には絶対に入れない。
 
 4. notes/LOCAL_INVENTORY.md に「何を・どこから・どこへ（notes/ のパス or data-cache の <name>）」を表で書き、
-   最終順位・スコアなど覚えていることも書いて push する。
+   push する。
 ```
 
 ---
