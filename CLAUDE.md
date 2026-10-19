@@ -16,7 +16,7 @@
 | 相手 | 届くか | どうするか |
 |---|---|---|
 | www.drivendata.org | ❌（proxy で 403） | ログイン・DL・提出は GitHub Actions に回す（Secrets にログイン情報あり） |
-| GitHub（この repo） | ✅ push・`gh api`・リリース添付の取得 | |
+| GitHub（この repo） | ✅ push・`gh api`・リリース添付の取得 | ❌ リリースの作成・削除（403）＝Actions に回す |
 | GitHub Actions の dispatch | ❌（403） | **`requests/dispatch.json` を push** → `Cloud Dispatch` が代わりに起動 |
 | www.kaggle.com/api/v1 | ✅（認証は proxy が付ける） | `api.kaggle.com` ではなく `www.kaggle.com/api/v1` を使う |
 | Google Drive | ✅（MCP） | 今のところ DrivenData 関連のファイルは無い |
@@ -64,9 +64,17 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
   - 最後の作業は 2026-03-24（Word Track の Kaggle GPU 学習の調整中で止まっている）。
 - cloud 対応を追加（このファイル・`Cloud Dispatch`・`Data Cache`・`tools/cloud_setup.sh`・`tools/local_push.sh`・`notes/`）。
   - ✅ `Cloud Dispatch` は 10-19 に実走確認（作業ブランチから `check-competitions.yml` を起動して成功）。
-  - ⚠️ `Data Cache` と `tools/cloud_setup.sh`・`tools/local_push.sh` は**まだ実走していない**。初回で落ちたら自分で直す。
-- 開催中コンペ（10-19 の Check Competitions）：8 件。賞金つきは **energy・$300,000・締切 2026-12-03・参加 665** の 1 件。
-  - ⚠️ スクリプトのタイトル抽出が壊れていて名前が `(unknown)`（DrivenData の HTML が変わった）。直すなら `check-competitions.yml` の正規表現。
+  - ✅ `local_push.sh` → 下書きリリース → `cloud_setup.sh` の往復（1MB 分割つき）を 10-19 に確認。
+    Actions 上（`Data Cache Selftest`）と、cloud からの取得の両方で一致。
+  - ⏳ `Data Cache`（DrivenData から Playwright で取得）の初回実走を phonetic で 10-19 に起動。
+- 開催中コンペ（10-19 の Check Competitions・抽出を直した版）：8 件。
+
+  | 締切 | 分野 | 賞金 | 参加 | コンペ |
+  |---|---|---|---|---|
+  | 2026-12-03 | energy | $300,000 | 665 | The Geologic Enhanced Mapping System (GEMS) Prize |
+  | 2027-02-01 | health | - | 176 | SNOMED CT Entity Linking Benchmark |
+  | 2028-04-03 | development | - | 647 | What's Up, Docs? Document Summarization with LLMs |
+  | 2028-07-03 以降 | - | - | - | 練習コンペ 5 件（Flu Shot・Conser-vision・Richter's・DengAI・Pump it Up） |
 
 ## 次の一手
 
