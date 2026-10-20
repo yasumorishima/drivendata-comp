@@ -207,12 +207,12 @@ def main():
     tr = pd.read_csv(d + "train.csv")
     if mode == "cv":
         tab = table(tr.text.tolist(), tr.summary.tolist())
-        scores = {b: [] for b in (190, 210)}
+        scores = {}
         for f, (a, b) in enumerate(KFold(5, shuffle=True, random_state=0).split(tr)):
             trn, (te,) = add_lex(tab[tab.doc.isin(a)], [tab[tab.doc.isin(b)]])
             m = fit(trn)
             global CLEAN
-            for bud in list(scores):
+            for bud in (190, 210):
                 for cl in (False, True):
                     CLEAN = cl
                     summ = summarize(m, te, len(tr), bud)
