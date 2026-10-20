@@ -67,6 +67,17 @@ def main():
                 agree.first.click()
                 page.wait_for_timeout(3000)
                 page.wait_for_load_state("networkidle")
+            # an optional pre-registration survey may follow: leave the answers at their
+            # defaults ("Prefer not to say") and press "Submit and join"
+            for _ in range(2):
+                join = page.locator(".modal.show button, .modal.show input[type=submit]").filter(
+                    has_text=re.compile(r"submit and join|join|I agree", re.I))
+                if not join.count():
+                    break
+                print("pressing:", join.first.inner_text())
+                join.first.click()
+                page.wait_for_timeout(3000)
+                page.wait_for_load_state("networkidle")
             snap(page, out, "3_after_agree")
 
         for sub in ("data/", "submissions/"):
