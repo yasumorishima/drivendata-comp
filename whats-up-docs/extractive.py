@@ -164,6 +164,21 @@ def fit(tab):
     return m
 
 
+CLEAN = True
+
+
+def clean(s):
+    """Drop what abstracts almost never contain: citations, bracketed asides, footnote marks."""
+    if not CLEAN:
+        return s
+    s = re.sub(r"\((?:[^()]*?\b(?:1[89]|20)\d{2}[a-z]?\b[^()]*?)\)", "", s)   # (Smith, 2010; ...)
+    s = re.sub(r"\[[^\]]{0,80}\]", "", s)                                        # [12], [see ...]
+    s = re.sub(r"\((?:e\.g\.|i\.e\.|see|cf\.)[^()]{0,120}\)", "", s, flags=re.I)
+    s = re.sub(r"(?<=[a-z.,;])\d{1,3}(?=\s|$)", "", s)                             # footnote numbers
+    s = re.sub(r"[*_`]+", "", s)
+    return re.sub(r"\s+([,.;:])", r"\1", re.sub(r"\s{2,}", " ", s)).strip()
+
+
 def compose(df, scores, budget=BUDGET):
     order = np.argsort(-scores)
     chosen, words, seen = [], 0, Counter()
@@ -177,7 +192,7 @@ def compose(df, scores, budget=BUDGET):
         words += df.words.iloc[k]
         if words >= budget:
             break
-    return " ".join(df.sent.iloc[sorted(chosen)])
+    return " ".join(clean(x) for x in df.sent.iloc[sorted(chosen)])
 
 
 def summarize(m, tab, n_docs, budget=BUDGET):
@@ -192,15 +207,20 @@ def main():
     tr = pd.read_csv(d + "train.csv")
     if mode == "cv":
         tab = table(tr.text.tolist(), tr.summary.tolist())
-        scores = {b: [] for b in (130, 160, 190, 220)}
+        scores = {b: [] for b in (190, 210)}
         for f, (a, b) in enumerate(KFold(5, shuffle=True, random_state=0).split(tr)):
             trn, (te,) = add_lex(tab[tab.doc.isin(a)], [tab[tab.doc.isin(b)]])
             m = fit(trn)
-            for bud in scores:
-                summ = summarize(m, te, len(tr), bud)
-                scores[bud] += [rouge2(tr.summary[i], summ[i]) for i in b]
-        for bud, v in scores.items():
-            print(f"budget {bud}: ROUGE-2 F1 {np.mean(v):.4f}")
+            global CLEAN
+            for bud in list(scores):
+                for cl in (False, True):
+                    CLEAN = cl
+                    summ = summarize(m, te, len(tr), bud)
+                    scores.setdefault((bud, cl), [])
+                    scores[(bud, cl)] += [rouge2(tr.summary[i], summ[i]) for i in b]
+        for k, v in scores.items():
+            if isinstance(k, tuple):
+                print(f"budget {k[0]} clean={k[1]}: ROUGE-2 F1 {np.mean(v):.4f}")
     else:
         te = pd.read_csv(d + "test_features.csv")
         trn, (tst,) = add_lex(table(tr.text.tolist(), tr.summary.tolist()), [table(te.text.tolist())])
