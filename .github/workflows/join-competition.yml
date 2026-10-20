@@ -1,0 +1,45 @@
+name: Join Competition
+
+# DrivenData のコンペに参加登録する（Compete! を押してルールに同意）。各段階の画面を
+# 下書きリリース data-cache に "join-<slug>__*" で置く（cloud: bash tools/cloud_setup.sh join-<slug>）。
+# 起動: requests/join.json を push。{"memo": "...", "comp": "/competitions/297/whats-up-docs/"}
+# 🔴 参加はルールへの同意になる。user が参加を決めたコンペだけに使う。
+
+on:
+  push:
+    paths:
+      - 'requests/join.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-cache
+  cancel-in-progress: false
+
+jobs:
+  join:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Playwright
+        run: |
+          pip install --quiet playwright
+          python -m playwright install --with-deps chromium
+      - name: Join
+        env:
+          DRIVENDATA_EMAIL: ${{ secrets.DRIVENDATA_EMAIL }}
+          DRIVENDATA_PASSWORD: ${{ secrets.DRIVENDATA_PASSWORD }}
+        run: |
+          comp=$(jq -r .comp requests/join.json)
+          echo "SLUG=$(basename "$comp")" >> "$GITHUB_ENV"
+          python scripts/join_competition.py out "$comp"
+      - name: Upload screens
+        if: always()
+        run: DD_REPO="${{ github.repository }}" bash tools/local_push.sh "join-$SLUG" out
