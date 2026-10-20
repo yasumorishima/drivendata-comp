@@ -1,9 +1,4 @@
-{"memo": "SNOMED CT Benchmark と What's Up Docs の概要・課題・ルール・LB を読む（2026-10-20 4 回目）",
- "urls": ["/benchmarks/310/benchmark-snomed-ct/",
-          "/benchmarks/310/benchmark-snomed-ct/rules/",
-          "/benchmarks/310/benchmark-snomed-ct/leaderboard/",
-          "/benchmarks/310/benchmark-snomed-ct/data/",
-          "/competitions/297/whats-up-docs/",
-          "/competitions/297/whats-up-docs/rules/",
-          "/competitions/297/whats-up-docs/leaderboard/",
-          "/competitions/297/whats-up-docs/data/"]}
+{"memo": "What's Up Docs の課題説明・About・公開コードのページ（2026-10-20 5 回目）",
+ "urls": ["/competitions/297/whats-up-docs/page/952/",
+          "/competitions/297/whats-up-docs/page/950/",
+          "/competitions/297/whats-up-docs/community-code/"]}
