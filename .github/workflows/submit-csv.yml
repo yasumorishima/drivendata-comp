@@ -1,0 +1,97 @@
+name: Submit Prediction
+
+# 予測ファイルを Actions の中で作って DrivenData に出し、点数を repo に記録する。
+# データは repo に入れない（下書きリリース data-cache から取る）。予測ファイルも repo に入れない。
+# 起動: requests/submit.json を push。
+#   {"memo": "この 1 本で何を確かめるか（提出の説明欄にも入る）",
+#    "comp": "/competitions/297/whats-up-docs/", "data": "whats-up-docs",
+#    "script": "whats-up-docs/extractive.py"}
+#   script は `python <script> submit <data_dir> <out.csv>` で予測を書くこと。
+#   requirements は <script と同じフォルダ>/requirements.txt があれば入れる。
+# 結果: <comp フォルダ>/results/submissions.md に 1 行追記して push、画面は data-cache の submit-<slug>__*。
+# 🔴 提出は 1 日の上限を使う。1 本ずつ、前の結果を見てから次を出す（CLAUDE.md）。
+
+on:
+  push:
+    paths:
+      - 'requests/submit.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: submit
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Read request
+        run: |
+          set -euo pipefail
+          for k in memo comp data script; do
+            v=$(jq -r --arg k "$k" '.[$k] // empty' requests/submit.json)
+            [ -n "$v" ] || { echo "::error::requests/submit.json needs $k"; exit 1; }
+            { echo "REQ_${k^^}<<EOF"; echo "$v"; echo "EOF"; } >> "$GITHUB_ENV"
+          done
+          echo "SLUG=$(basename "$(jq -r .comp requests/submit.json)")" >> "$GITHUB_ENV"
+
+      - name: Install
+        run: |
+          pip install --quiet playwright pandas numpy
+          req="$(dirname "$REQ_SCRIPT")/requirements.txt"
+          [ -f "$req" ] && pip install --quiet -r "$req"
+          python -m playwright install --with-deps chromium
+
+      - name: Make prediction
+        run: |
+          set -euo pipefail
+          DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh "$REQ_DATA"
+          python "$REQ_SCRIPT" submit "$RUNNER_TEMP/env/data/$REQ_DATA" "$RUNNER_TEMP/submission.csv"
+          ls -la "$RUNNER_TEMP/submission.csv"
+
+      - name: Submit
+        id: sub
+        env:
+          DRIVENDATA_EMAIL: ${{ secrets.DRIVENDATA_EMAIL }}
+          DRIVENDATA_PASSWORD: ${{ secrets.DRIVENDATA_PASSWORD }}
+        run: |
+          set +e
+          python scripts/submit_csv.py "$REQ_COMP" "$RUNNER_TEMP/submission.csv" \
+            "$REQ_MEMO (commit ${GITHUB_SHA::7})" out
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Record result
+        if: always()
+        run: |
+          set -euo pipefail
+          DD_REPO="${{ github.repository }}" bash tools/local_push.sh "submit-$SLUG" out || true
+          dir="$(dirname "$REQ_SCRIPT")/results"; mkdir -p "$dir"
+          f="$dir/submissions.md"
+          [ -f "$f" ] || printf '# 提出の記録（Submit Prediction が追記）\n\n| 日時 (UTC) | commit | script | 結果 | memo |\n|---|---|---|---|---|\n' > "$f"
+          res=$(python3 - <<'PY'
+          import re
+          t = open("out/result.txt", encoding="utf-8").read() if __import__("os").path.exists("out/result.txt") else ""
+          best = re.search(r"Best score\s*\n\s*([0-9.]+|None)", t)
+          left = re.search(r"You have (\d+) of (\d+) submissions left today", t)
+          rank = re.search(r"Current rank\s*\n\s*(\S+)", t)
+          rows = re.findall(r"\n([0-9]\.[0-9]{3,})\s", t)
+          print(f"latest {rows[0] if rows else '?'} / best {best.group(1) if best else '?'} / rank {rank.group(1) if rank else '?'} / left {left.group(1) + '/' + left.group(2) if left else '?'}")
+          PY
+          )
+          echo "rc=${{ steps.sub.outputs.rc }} $res"
+          echo "| $(date -u +%Y-%m-%dT%H:%MZ) | ${GITHUB_SHA::7} | \`$REQ_SCRIPT\` | rc=${{ steps.sub.outputs.rc }} $res | $(echo "$REQ_MEMO" | tr '\n|' '  ') |" >> "$f"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$f" && git commit -m "submit result: $SLUG ${res}" && \
+            (git push || (git pull --rebase && git push))
