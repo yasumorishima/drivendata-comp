@@ -11,7 +11,7 @@
 
 - 「To compete in the GEMS Prize, competitors must comply with the eligibility requirements below」＝**賞金だけでなく参加の条件**。
 - 登録時にルールへの同意、賞金時に資格の宣誓（under penalty of perjury）がある。
-- ⇒ user が米国市民・永住者でなければ参加できない。**user の確認が取れるまで登録（Compete!）しない。**
+- ⇒ **2026-10-20 user に確認：当てはまらない。GEMS は参加しない（登録もしない）。**
 
 ## 課題
 
