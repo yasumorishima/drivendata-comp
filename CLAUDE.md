@@ -24,6 +24,7 @@
 |---|---|---|
 | www.drivendata.org | ❌（proxy で 403） | ログイン・DL・提出は GitHub Actions に回す（Secrets にログイン情報あり） |
 | GitHub（この repo） | ✅ push・`gh api`・リリース添付の取得 | ❌ リリースの作成・削除（403）＝Actions に回す |
+| Kaggle の GPU で回す | ✅（Actions 経由） | `requests/kaggle-run.json`（Kaggle Run：入力 dataset 作成→kernel push→完了待ち→出力を data-cache `kout-<name>` へ） |
 | DrivenData への参加登録・提出 | ❌ | `requests/join.json`（Join Competition）・`requests/submit.json`（Submit Prediction）を push |
 | www.drivendata.org のページを読む | ❌ | **`requests/pages.json` を push** → `Fetch Pages` がログインして本文を取り、`bash tools/cloud_setup.sh pages` で読める |
 | GitHub Actions の dispatch | ❌（403） | **`requests/dispatch.json` を push** → `Cloud Dispatch` が代わりに起動 |
@@ -79,7 +80,7 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 - `pasketti-*/`（On Top of Pasketti、2026-04-06 締切）は過去の作業の跡。仕組み（GPU 学習・提出 zip・自動提出）を流用するときだけ参照する。
 - PC のメモも、開催中のコンペと流用できる仕組みに関係するものだけ集めればよい。
 
-## 現在地（2026-10-20）
+## 現在地（2026-10-20 夜）
 
 - cloud 対応を追加（このファイル・`Cloud Dispatch`・`Data Cache`・`tools/cloud_setup.sh`・`tools/local_push.sh`・`notes/`）。全部 10-19 に実走で確認済み。
   - `Data Cache` が取れるのは DrivenData のデータページから直接落とせるファイルだけ。外部サイト配布のデータ（別ログイン）は対象外。
@@ -87,7 +88,8 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
   - 開催中のコンペのメモ・データは PC に無かった。移したのは仕組みのメモ 4 本（`notes/automation/`）だけ。データは 0 件。
   - `notes/automation/` は書いた時点のまま（RPi5・PC のパスなど古い記述あり）。使う前に今の repo で確かめる。
   - PC の `Desktop/Kaggle/DrivenData.txt` は Discord の webhook URL。Secret `DISCORD_WEBHOOK_URL` として 5 本のワークフローが通知に使っている可能性が高いので、Discord 側で消さない。
-- **What's Up Docs に 10-20 参加登録（Join Competition）。1 本目 LB 0.1736（6 位）。**
+- **What's Up Docs に 10-20 参加登録（Join Competition）。10-20 は 2 本提出、最高 LB 0.1789（4 位・抜粋 v2）。**
+  - LLM ゼロショット（Qwen2.5-7B）は検証で抜粋に負けた（0.147 vs 0.181）。次は LoRA 微調整（詳細は `whats-up-docs/CLAUDE.md`）。
 - GEMS は参加資格が無く見送り（10-20 user 確認）。
 - 開催中コンペ（10-19 の Check Competitions）：8 件。
 
