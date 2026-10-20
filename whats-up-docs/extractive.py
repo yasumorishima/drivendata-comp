@@ -123,6 +123,40 @@ def feat_cols(df):
     return [c for c in df.columns if c not in ("sent", "heading", "doc", "y")]
 
 
+class Lex:
+    """Word n-gram model of "abstract-like" wording, used as a feature for LightGBM."""
+
+    def __init__(self):
+        from sklearn.linear_model import Ridge
+        self.vec = TfidfVectorizer(ngram_range=(1, 2), min_df=3, max_features=200000, sublinear_tf=True)
+        self.reg = Ridge(alpha=3.0)
+
+    def fit(self, sents, y):
+        self.reg.fit(self.vec.fit_transform(sents), y)
+        return self
+
+    def predict(self, sents):
+        return self.reg.predict(self.vec.transform(sents))
+
+
+def add_lex(train_tab, other_tabs=(), folds=5):
+    """Out-of-fold lexical score on train_tab; full-fit score on the other tables."""
+    train_tab = train_tab.copy()
+    train_tab["lex"] = 0.0
+    docs = train_tab.doc.unique()
+    for a, b in KFold(folds, shuffle=True, random_state=1).split(docs):
+        tr_m = train_tab.doc.isin(docs[a])
+        lx = Lex().fit(train_tab.sent[tr_m], train_tab.y[tr_m])
+        train_tab.loc[~tr_m, "lex"] = lx.predict(train_tab.sent[~tr_m])
+    lx = Lex().fit(train_tab.sent, train_tab.y)
+    out = []
+    for t in other_tabs:
+        t = t.copy()
+        t["lex"] = lx.predict(t.sent)
+        out.append(t)
+    return train_tab, out
+
+
 def fit(tab):
     m = lgb.LGBMRegressor(n_estimators=400, learning_rate=0.03, num_leaves=31, min_child_samples=40,
                           subsample=0.8, subsample_freq=1, colsample_bytree=0.8, verbose=-1)
@@ -160,8 +194,8 @@ def main():
         tab = table(tr.text.tolist(), tr.summary.tolist())
         scores = {b: [] for b in (130, 160, 190, 220)}
         for f, (a, b) in enumerate(KFold(5, shuffle=True, random_state=0).split(tr)):
-            m = fit(tab[tab.doc.isin(a)])
-            te = tab[tab.doc.isin(b)]
+            trn, (te,) = add_lex(tab[tab.doc.isin(a)], [tab[tab.doc.isin(b)]])
+            m = fit(trn)
             for bud in scores:
                 summ = summarize(m, te, len(tr), bud)
                 scores[bud] += [rouge2(tr.summary[i], summ[i]) for i in b]
@@ -169,8 +203,9 @@ def main():
             print(f"budget {bud}: ROUGE-2 F1 {np.mean(v):.4f}")
     else:
         te = pd.read_csv(d + "test_features.csv")
-        m = fit(table(tr.text.tolist(), tr.summary.tolist()))
-        summ = summarize(m, table(te.text.tolist()), len(te))
+        trn, (tst,) = add_lex(table(tr.text.tolist(), tr.summary.tolist()), [table(te.text.tolist())])
+        m = fit(trn)
+        summ = summarize(m, tst, len(te))
         # fall back to the first words of the paper if no sentence survived the filter
         summ = [s if s.strip() else " ".join(str(t).split()[:BUDGET]) for s, t in zip(summ, te.text)]
         pd.DataFrame({"paper_id": te.paper_id, "summary": summ}).to_csv(sys.argv[3], index=False)

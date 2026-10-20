@@ -17,6 +17,7 @@
 |---|---|---|
 | www.drivendata.org | ❌（proxy で 403） | ログイン・DL・提出は GitHub Actions に回す（Secrets にログイン情報あり） |
 | GitHub（この repo） | ✅ push・`gh api`・リリース添付の取得 | ❌ リリースの作成・削除（403）＝Actions に回す |
+| DrivenData への参加登録・提出 | ❌ | `requests/join.json`（Join Competition）・`requests/submit.json`（Submit Prediction）を push |
 | www.drivendata.org のページを読む | ❌ | **`requests/pages.json` を push** → `Fetch Pages` がログインして本文を取り、`bash tools/cloud_setup.sh pages` で読める |
 | GitHub Actions の dispatch | ❌（403） | **`requests/dispatch.json` を push** → `Cloud Dispatch` が代わりに起動 |
 | www.kaggle.com/api/v1 | ✅（認証は proxy が付ける） | `api.kaggle.com` ではなく `www.kaggle.com/api/v1` を使う |
@@ -79,6 +80,8 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
   - 開催中のコンペのメモ・データは PC に無かった。移したのは仕組みのメモ 4 本（`notes/automation/`）だけ。データは 0 件。
   - `notes/automation/` は書いた時点のまま（RPi5・PC のパスなど古い記述あり）。使う前に今の repo で確かめる。
   - PC の `Desktop/Kaggle/DrivenData.txt` は Discord の webhook URL。Secret `DISCORD_WEBHOOK_URL` として 5 本のワークフローが通知に使っている可能性が高いので、Discord 側で消さない。
+- **What's Up Docs に 10-20 参加登録（Join Competition）。1 本目 LB 0.1736（6 位）。**
+- GEMS は参加資格が無く見送り（10-20 user 確認）。
 - 開催中コンペ（10-19 の Check Competitions）：8 件。
 
   | 締切 | 分野 | 賞金 | 参加 | コンペ |
@@ -90,10 +93,11 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 
 ## 次の一手
 
-1. 参加するコンペを決める（賞金つきで開催中なのは GEMS Prize のみ。締切 2026-12-03）。
-   - 🔴 GEMS は**個人なら米国市民・永住者しか参加できない**（公式ルール 1.3）。**10-20 に user が当てはまらないと回答＝GEMS は参加しない。**
-   決めたら上の「コンペの進め方」の開始時ルーチンを回し、`<コンペ>/CLAUDE.md` に「🎯 上位への道筋」を書く。
-2. この branch を master に入れる（新しいセッションと PC が branch の切り替えなしで使えるように）。
+1. **What's Up Docs（`whats-up-docs/CLAUDE.md` が正本）で毎日 3 本（UTC 0 時で回復）を 1 本ずつ出す。**
+   - 出し方：`requests/submit.json` を push → `Submit Prediction` が Actions の中で予測を作って提出し、点数を `whats-up-docs/results/submissions.md` に追記。
+   - 毎日 UTC 0:07（JST 9:07）に Routine `trig_01Rp6L6ZKtha2GgqYrrDVvtn` がこのセッションを起こす。
+2. SNOMED CT Benchmark：データは PhysioNet の資格審査（CITI 研修など）が要る。user に頼むかは What's Up Docs が軌道に乗ってから決める。
+3. この branch を master に入れる（新しいセッションと PC が branch の切り替えなしで使えるように）。
 
 ## commit のルール
 
