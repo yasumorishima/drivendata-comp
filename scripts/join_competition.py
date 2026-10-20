@@ -45,15 +45,27 @@ def main():
             print("no Compete!/Register! button: already joined?")
         else:
             btn.first.click()
+            page.wait_for_timeout(3000)
             page.wait_for_load_state("networkidle")
             snap(page, out, "2_after_compete")
-            # rules agreement page: tick every checkbox, then press the agree/submit button
-            for cb in page.locator("input[type=checkbox]").all():
-                if cb.is_visible() and not cb.is_checked():
-                    cb.check()
-            agree = page.get_by_role("button", name=re.compile(r"agree|accept|join|register|submit|continue", re.I))
+            # the rules agreement opens in a modal dialog: act inside it when present
+            modal = page.locator(".modal.show, [role=dialog]:visible, .modal:visible").first
+            scope = modal if modal.count() else page
+            (out / "2_modal.html").write_text(scope.inner_html() if modal.count() else page.content(), encoding="utf-8")
+            for cb in scope.locator("input[type=checkbox]").all():
+                try:
+                    if not cb.is_checked():
+                        cb.check(force=True)
+                except Exception as e:
+                    print("checkbox:", e)
+            agree = scope.locator("button, input[type=submit]").filter(
+                has_text=re.compile(r"agree|accept|join|register|compete|submit|continue", re.I))
+            if agree.count() == 0:
+                agree = scope.locator("input[type=submit]")
+            print("agree buttons:", agree.count())
             if agree.count():
                 agree.first.click()
+                page.wait_for_timeout(3000)
                 page.wait_for_load_state("networkidle")
             snap(page, out, "3_after_agree")
 
