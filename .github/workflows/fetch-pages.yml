@@ -1,0 +1,49 @@
+name: Fetch Pages (for cloud sessions)
+
+# cloud は www.drivendata.org に届かないので、ログインした状態でページを開き、
+# 本文とリンク一覧のテキストを下書きリリース data-cache に "pages__<slug>.txt" で置く。
+# cloud 側: bash tools/cloud_setup.sh pages  → ~/drivendata-env/data/pages/
+# 起動: requests/pages.json を push。
+#   {"memo": "なぜ読むか", "urls": ["/competitions/306/competition-doe-gems/", "..."]}
+
+on:
+  push:
+    paths:
+      - 'requests/pages.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-cache
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright
+        run: |
+          pip install --quiet playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Fetch
+        env:
+          DRIVENDATA_EMAIL: ${{ secrets.DRIVENDATA_EMAIL }}
+          DRIVENDATA_PASSWORD: ${{ secrets.DRIVENDATA_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mapfile -t urls < <(jq -r '.urls[]' requests/pages.json)
+          python scripts/fetch_pages.py pages "${urls[@]}"
+
+      - name: Upload
+        run: DD_REPO="${{ github.repository }}" bash tools/local_push.sh pages pages
