@@ -1,14 +1,4 @@
-{"memo": "GEMS Prize の概要・ルール・データ・提出上限を読む（2026-10-20）",
- "urls": ["/competitions/306/competition-doe-gems/",
-          "/competitions/306/competition-doe-gems/rules/",
-          "/competitions/306/competition-doe-gems/data/",
-          "/competitions/306/competition-doe-gems/submissions/",
-          "/competitions/306/competition-doe-gems/leaderboard/",
-          "/competitions/306/competition-doe-gems/page/966/",
-          "/competitions/306/competition-doe-gems/page/967/",
-          "/competitions/306/competition-doe-gems/page/968/",
-          "/competitions/306/competition-doe-gems/page/969/",
-          "/competitions/306/competition-doe-gems/page/970/",
-          "/competitions/306/competition-doe-gems/page/971/",
-          "https://www.herox.com/GEMSPrize",
-          "https://www.herox.com/GEMSPrize/guidelines"]}
+{"memo": "GEMS の公式ルール（HeroX resource 2274）で参加資格を確かめる（2026-10-20 2 回目）",
+ "urls": ["https://www.herox.com/GEMSPrize/resource/2274",
+          "https://www.herox.com/GEMSPrize/faq",
+          "https://community.drivendata.org/c/gems-prize-challenge/111"]}

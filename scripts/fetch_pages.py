@@ -38,6 +38,15 @@ def main():
             print("login:", "ok" if "/accounts/login/" not in page.url else "FAILED")
         for url in urls:
             try:
+                if url.lower().split("?")[0].endswith((".pdf", "/resource/2274")) or "/resource/" in url:
+                    # documents: download the file as-is (text is extracted on the cloud side)
+                    r = page.request.get(url, timeout=60000)
+                    ct = r.headers.get("content-type", "")
+                    ext = ".pdf" if "pdf" in ct else ".html" if "html" in ct else ".bin"
+                    (out / f"{slug(url)}{ext}").write_bytes(r.body())
+                    print(f"saved {slug(url)}{ext} ({ct}, {len(r.body())} bytes)")
+                    if "html" not in ct:
+                        continue
                 page.goto(url, timeout=60000)
                 page.wait_for_load_state("networkidle")
                 text = page.inner_text("body")
