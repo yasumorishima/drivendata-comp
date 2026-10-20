@@ -17,6 +17,7 @@
 |---|---|---|
 | www.drivendata.org | ❌（proxy で 403） | ログイン・DL・提出は GitHub Actions に回す（Secrets にログイン情報あり） |
 | GitHub（この repo） | ✅ push・`gh api`・リリース添付の取得 | ❌ リリースの作成・削除（403）＝Actions に回す |
+| www.drivendata.org のページを読む | ❌ | **`requests/pages.json` を push** → `Fetch Pages` がログインして本文を取り、`bash tools/cloud_setup.sh pages` で読める |
 | GitHub Actions の dispatch | ❌（403） | **`requests/dispatch.json` を push** → `Cloud Dispatch` が代わりに起動 |
 | www.kaggle.com/api/v1 | ✅（認証は proxy が付ける） | `api.kaggle.com` ではなく `www.kaggle.com/api/v1` を使う |
 | Google Drive | ✅（MCP） | 今のところ DrivenData 関連のファイルは無い |
@@ -90,6 +91,7 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 ## 次の一手
 
 1. 参加するコンペを決める（賞金つきで開催中なのは GEMS Prize のみ。締切 2026-12-03）。
+   - 🔴 GEMS は**個人なら米国市民・永住者しか参加できない**（公式ルール 1.3。`notes/gems/OVERVIEW.md`）。user に確かめるまで登録しない。
    決めたら上の「コンペの進め方」の開始時ルーチンを回し、`<コンペ>/CLAUDE.md` に「🎯 上位への道筋」を書く。
 2. この branch を master に入れる（新しいセッションと PC が branch の切り替えなしで使えるように）。
 
