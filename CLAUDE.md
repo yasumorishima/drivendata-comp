@@ -58,16 +58,26 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 2. ローカルにだけあるデータ（DL 済みの配布物・学習済みモデル・提出 zip など）を `tools/local_push.sh` で `data-cache` に上げる。
 3. 何を上げたかを `notes/LOCAL_INVENTORY.md` に書いて push。
 
+## コンペの進め方（`notes/automation/kaggle-methodology.md` が正本・Kaggle/SIGNATE と共通）
+
+- **戦略判断（CV 設計・指標の解釈・勝負どころ・次の一手）も Claude が自分で決める。** user に「次どうしますか」と選択肢を投げない。
+- コンペを始めたら最初に：Overview と Data ページを Markdown に整理 → 公開ベースラインを読解 → 次の実験を決めるための EDA。
+- 小手先の調整（ハイパラの刻み・重みの微調整）に流れない。「この改善はコンペの本質に近づいているか」を毎回問う。
+
 ## 🔴 締切済みのコンペは扱わない（2026-10-19 user 指示：「締切済みはどうでもいい」）
 
 - 開催中のコンペだけを見る。締切済みのコンペの順位の記録・データの回収・続きの作業はしない。提案もしない。
 - `pasketti-*/`（On Top of Pasketti、2026-04-06 締切）は過去の作業の跡。仕組み（GPU 学習・提出 zip・自動提出）を流用するときだけ参照する。
 - PC のメモも、開催中のコンペと流用できる仕組みに関係するものだけ集めればよい。
 
-## 現在地（2026-10-19）
+## 現在地（2026-10-20）
 
 - cloud 対応を追加（このファイル・`Cloud Dispatch`・`Data Cache`・`tools/cloud_setup.sh`・`tools/local_push.sh`・`notes/`）。全部 10-19 に実走で確認済み。
   - `Data Cache` が取れるのは DrivenData のデータページから直接落とせるファイルだけ。外部サイト配布のデータ（別ログイン）は対象外。
+- PC からの受け渡しは 10-20 に完了（`notes/LOCAL_INVENTORY.md`）。
+  - 開催中のコンペのメモ・データは PC に無かった。移したのは仕組みのメモ 4 本（`notes/automation/`）だけ。データは 0 件。
+  - `notes/automation/` は書いた時点のまま（RPi5・PC のパスなど古い記述あり）。使う前に今の repo で確かめる。
+  - PC の `Desktop/Kaggle/DrivenData.txt` は Discord の webhook URL。Secret `DISCORD_WEBHOOK_URL` として 5 本のワークフローが通知に使っている可能性が高いので、Discord 側で消さない。
 - 開催中コンペ（10-19 の Check Competitions）：8 件。
 
   | 締切 | 分野 | 賞金 | 参加 | コンペ |
@@ -79,9 +89,9 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 
 ## 次の一手
 
-1. 参加するコンペを決める（賞金つきで開催中なのは GEMS Prize のみ。締切まで約 6 週間）。
-2. 決めたら `template/` か `gpu-template/` から `<コンペ>/` を作り、`<コンペ>/CLAUDE.md` に「🎯 上位への道筋」を書く。
-3. PC 側の受け渡し（`notes/LOCAL_HANDOFF.md`）は、開催中のコンペに関係するメモがあるときだけ。
+1. 参加するコンペを決める（賞金つきで開催中なのは GEMS Prize のみ。締切 2026-12-03）。
+   決めたら上の「コンペの進め方」の開始時ルーチンを回し、`<コンペ>/CLAUDE.md` に「🎯 上位への道筋」を書く。
+2. この branch を master に入れる（新しいセッションと PC が branch の切り替えなしで使えるように）。
 
 ## commit のルール
 
