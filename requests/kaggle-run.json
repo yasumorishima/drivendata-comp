@@ -1,0 +1,3 @@
+{"memo": "LLM v1: Qwen2.5-7B-Instruct ゼロショットで抜粋 v2 の文と冒頭から要旨を書かせる。検証 100 本で抜粋と比べる",
+ "data": "whats-up-docs", "prep": "whats-up-docs/extractive.py material",
+ "dataset": "yasunorim/dd-whats-up-docs-input", "kernel_dir": "whats-up-docs/llm", "out_name": "llm-v1"}

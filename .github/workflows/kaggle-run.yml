@@ -1,0 +1,133 @@
+name: Kaggle Run
+
+# Kaggle の GPU で script kernel を回し、出力を cloud に渡す。
+#  1. data-cache のデータから prep コマンドで入力を作り、Kaggle の非公開 dataset を作成/更新
+#  2. kernel を push（成功の表示を確かめる）→ 完了まで待つ（前回の完了と取り違えない）
+#  3. 出力を下書きリリース data-cache に "kout-<out_name>__*" で置き、val_scores を repo に記録
+# 起動: requests/kaggle-run.json を push。
+#   {"memo": "...", "data": "whats-up-docs", "prep": "whats-up-docs/extractive.py material",
+#    "dataset": "yasunorim/dd-whats-up-docs-input", "kernel_dir": "whats-up-docs/llm", "out_name": "llm-v1"}
+#   prep は `python <prep> <data_dir> <dataset_dir>` で dataset に入れるファイルを書く。
+# GPU は Kaggle の週 30 時間枠（Kaggle・SIGNATE と共通）を使う。
+
+on:
+  push:
+    paths:
+      - 'requests/kaggle-run.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kaggle-run
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Read request
+        run: |
+          set -euo pipefail
+          for k in memo data prep dataset kernel_dir out_name; do
+            v=$(jq -r --arg k "$k" '.[$k] // empty' requests/kaggle-run.json)
+            [ -n "$v" ] || { echo "::error::requests/kaggle-run.json needs $k"; exit 1; }
+            { echo "REQ_${k^^}<<EOF"; echo "$v"; echo "EOF"; } >> "$GITHUB_ENV"
+          done
+          echo "KERNEL_ID=$(jq -r .id "$(jq -r .kernel_dir requests/kaggle-run.json)/kernel-metadata.json")" >> "$GITHUB_ENV"
+
+      - name: Install
+        run: |
+          # kaggle 2.0.0 + kagglesdk 0.1.15: the latest kagglesdk wheel breaks `import kaggle`
+          pip install --quiet 'kaggle==2.0.0' 'kagglesdk==0.1.15' pandas numpy
+          req="$(dirname "${REQ_PREP%% *}")/requirements.txt"
+          [ -f "$req" ] && pip install --quiet -r "$req"
+          mkdir -p ~/.kaggle
+          python -c "import json,os; json.dump({'username': os.environ['U'], 'key': os.environ['K']}, open(os.path.expanduser('~/.kaggle/kaggle.json'), 'w'))"
+          chmod 600 ~/.kaggle/kaggle.json
+        env:
+          U: ${{ secrets.KAGGLE_USERNAME }}
+          K: ${{ secrets.KAGGLE_KEY }}
+
+      - name: Build input dataset
+        run: |
+          set -euo pipefail
+          DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh "$REQ_DATA"
+          ds="$RUNNER_TEMP/ds"; mkdir -p "$ds"
+          python $REQ_PREP "$RUNNER_TEMP/env/data/$REQ_DATA" "$ds"
+          python - "$ds" <<'PY'
+          import json, os, sys
+          slug = os.environ["REQ_DATASET"]
+          json.dump({"title": slug.split("/")[1], "id": slug, "licenses": [{"name": "CC-BY-4.0"}]},
+                    open(os.path.join(sys.argv[1], "dataset-metadata.json"), "w"))
+          PY
+          ls -la "$ds"
+          if kaggle datasets status "$REQ_DATASET" > /dev/null 2>&1; then
+            kaggle datasets version -p "$ds" -m "$REQ_MEMO" -r zip
+          else
+            kaggle datasets create -p "$ds" -r zip   # private by default
+          fi
+          for i in $(seq 1 60); do
+            s=$(kaggle datasets status "$REQ_DATASET" 2>&1 || true); echo "dataset status: $s"
+            echo "$s" | grep -qi ready && break; sleep 20
+          done
+
+      - name: Push kernel
+        run: |
+          set -euo pipefail
+          PRE_LRT=$(python -c "
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          a = KaggleApi(); a.authenticate()
+          try:
+              k = [x for x in a.kernels_list(user='${KERNEL_ID%%/*}', search='${KERNEL_ID#*/}', page_size=100) if x.ref == '$KERNEL_ID']
+              print(k[0].last_run_time if k else '')
+          except Exception: print('')")
+          echo "PRE_LRT=$PRE_LRT" >> "$GITHUB_ENV"
+          OUT=$(kaggle kernels push -p "$REQ_KERNEL_DIR" 2>&1) || true
+          echo "$OUT"
+          echo "$OUT" | grep -qi "successfully pushed" || { echo "::error::kernel push not confirmed"; exit 1; }
+
+      - name: Wait for the kernel
+        id: wait
+        run: |
+          sleep 120
+          for i in $(seq 1 330); do
+            s=$(python -c "
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          a = KaggleApi(); a.authenticate()
+          try:
+              r = a.kernels_status('$KERNEL_ID'); print(str(getattr(r, 'status', r)).split('.')[-1].lower())
+          except Exception as e: print('err', e)" 2>&1 | tail -1)
+            echo "$(date -u +%H:%M) $s"
+            case "$s" in *complete*|*error*|*cancel*) echo "status=$s" >> "$GITHUB_OUTPUT"; break;; esac
+            sleep 60
+          done
+
+      - name: Collect output
+        if: always()
+        run: |
+          set +e
+          mkdir -p kout
+          kaggle kernels output "$KERNEL_ID" -p kout
+          ls -la kout
+          tail -c 4000 kout/*.log 2>/dev/null
+          cat kout/val_scores.txt 2>/dev/null
+          DD_REPO="${{ github.repository }}" bash tools/local_push.sh "kout-$REQ_OUT_NAME" kout
+          dir="$(dirname "$REQ_KERNEL_DIR")/results"; mkdir -p "$dir"
+          { echo "# $REQ_OUT_NAME ($(date -u +%Y-%m-%dT%H:%MZ), commit ${GITHUB_SHA::7}, status ${{ steps.wait.outputs.status }})";
+            echo; echo "memo: $REQ_MEMO"; echo; echo '```'; cat kout/val_scores.txt 2>/dev/null || echo "(no val_scores.txt)"; echo '```'; } \
+            > "$dir/kernel-$REQ_OUT_NAME.md"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$dir" && git commit -m "kaggle run: $REQ_OUT_NAME ${{ steps.wait.outputs.status }}" && \
+            (git push || (git pull --rebase && git push))
+          case "${{ steps.wait.outputs.status }}" in *complete*) exit 0;; *) exit 1;; esac

@@ -21,6 +21,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import KFold
 
 BUDGET = 190  # words; the median abstract has ~180
+MAT = 450  # words of top sentences handed to the LLM
 CUES = ["this paper", "this article", "this study", "this chapter", "we argue", "we find", "we show",
         "i argue", "results show", "findings", "we propose", "this research", "in this", "suggest",
         "we examine", "we investigate", "we use", "data from", "conclude", "implications"]
@@ -221,6 +222,33 @@ def main():
         for k, v in scores.items():
             if isinstance(k, tuple):
                 print(f"budget {k[0]} clean={k[1]}: ROUGE-2 F1 {np.mean(v):.4f}")
+    elif mode == "material":
+        # input for the LLM: for 100 held-out train papers (to measure) and for the test papers,
+        # the top sentences by the v2 model (in document order, ~MAT words) plus the paper's opening
+        out = sys.argv[3].rstrip("/") + "/"
+        te = pd.read_csv(d + "test_features.csv")
+        val = tr.sample(100, random_state=7).index
+        fit_idx = tr.index.difference(val)
+        tab = table(tr.text.tolist(), tr.summary.tolist())
+        trn, (vt, tt) = add_lex(tab[tab.doc.isin(fit_idx)], [tab[tab.doc.isin(val)], table(te.text.tolist())])
+        m = fit(trn)
+        rows = []
+        for split, t, frame in (("val", vt, tr), ("test", tt, te)):
+            for i, df in t.groupby("doc"):
+                df = df.reset_index(drop=True)
+                sc = m.predict(df[feat_cols(df)])
+                top = sorted(np.argsort(-sc)[: max(1, int(np.searchsorted(np.cumsum(df.words.values[np.argsort(-sc)]), MAT)) + 1)])
+                rows.append({"paper_id": frame.paper_id.iloc[i], "split": split,
+                             "extract": compose(df, sc, BUDGET),
+                             "material": " ".join(clean(x) for x in df.sent.iloc[top]),
+                             "opening": " ".join(str(frame.text.iloc[i]).split()[:350]),
+                             "reference": frame.summary.iloc[i] if split == "val" else ""})
+        pd.DataFrame(rows).to_csv(out + "material.csv", index=False)
+        # a few train examples (not in val) for few-shot prompting
+        ex = tr.loc[fit_idx].sample(3, random_state=1)
+        pd.DataFrame({"opening": [" ".join(str(t).split()[:350]) for t in ex.text], "summary": ex.summary}).to_csv(
+            out + "examples.csv", index=False)
+        print("material:", len(rows))
     else:
         te = pd.read_csv(d + "test_features.csv")
         trn, (tst,) = add_lex(table(tr.text.tolist(), tr.summary.tolist()), [table(te.text.tolist())])

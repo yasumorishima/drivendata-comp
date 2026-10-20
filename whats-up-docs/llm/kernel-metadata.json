@@ -1,0 +1,15 @@
+{
+  "id": "yasunorim/dd-whats-up-docs-llm",
+  "title": "dd whats up docs llm",
+  "code_file": "summarize_llm.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": ["yasunorim/dd-whats-up-docs-input"],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}
