@@ -6,6 +6,7 @@ name: Submit Prediction
 #   {"memo": "この 1 本で何を確かめるか（提出の説明欄にも入る）",
 #    "comp": "/competitions/297/whats-up-docs/", "data": "whats-up-docs",
 #    "script": "whats-up-docs/extractive.py"}
+#   data は空白区切りで複数可（例 "whats-up-docs kout-llm-v1"）。<data_dir> は先頭のもの、他は隣のフォルダに入る。
 #   script は `python <script> submit <data_dir> <out.csv>` で予測を書くこと。
 #   requirements は <script と同じフォルダ>/requirements.txt があれば入れる。
 # 結果: <comp フォルダ>/results/submissions.md に 1 行追記して push、画面は data-cache の submit-<slug>__*。
@@ -56,8 +57,8 @@ jobs:
       - name: Make prediction
         run: |
           set -euo pipefail
-          DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh "$REQ_DATA"
-          python "$REQ_SCRIPT" submit "$RUNNER_TEMP/env/data/$REQ_DATA" "$RUNNER_TEMP/submission.csv"
+          DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh $REQ_DATA
+          python "$REQ_SCRIPT" submit "$RUNNER_TEMP/env/data/${REQ_DATA%% *}" "$RUNNER_TEMP/submission.csv"
           ls -la "$RUNNER_TEMP/submission.csv"
 
       - name: Submit
