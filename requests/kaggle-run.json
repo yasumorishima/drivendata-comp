@@ -1,10 +1,4 @@
-{
- "memo": "LoRA v1: 10-21 01:09 に push 済みの kernel v2 の完了を待って出力を集める（前回は PRE_LRT の取り込みで落ちた）",
- "data": "whats-up-docs",
- "prep": "whats-up-docs/extractive.py material",
- "dataset": "yasunorim/dd-whats-up-docs-input",
- "kernel_dir": "whats-up-docs/lora",
- "out_name": "lora-v1",
- "reuse_dataset": true,
- "collect_only": true
-}
+{"memo": "llm-v2: Qwen2.5-7B ゼロショット要旨を学習 900 本にも作る（llm-v1 と同じ設定）。文との 2 語並び一致を LightGBM の特徴として学ばせるため",
+ "data": "whats-up-docs", "prep": "whats-up-docs/extractive.py material",
+ "dataset": "yasunorim/dd-whats-up-docs-input", "kernel_dir": "whats-up-docs/llm", "out_name": "llm-v2",
+ "reuse_dataset": true}

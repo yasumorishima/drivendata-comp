@@ -20,6 +20,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 MODEL = os.environ.get("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct")  # Apache-2.0
 OUT = os.environ.get("LLM_OUT", "/kaggle/working")
 INPUT = os.environ.get("LLM_INPUT", "/kaggle/input/**/material.csv")
+# llm-v1 wrote val+test; llm-v2 writes the 900 train papers so the overlap with this text can be
+# learned as a feature (zero-shot, so the model never saw these abstracts)
+SPLITS = os.environ.get("LLM_SPLITS", "train").split(",")
 LIMIT = int(os.environ.get("LLM_LIMIT", "0"))  # for a quick local test
 BATCH = 12
 MAX_NEW = 330
@@ -57,9 +60,9 @@ def rouge2(ref, pred):
 def main():
     path = glob.glob(INPUT, recursive=True)[0]
     df = pd.read_csv(path).fillna("")
-    df = df[df.split != "train"].reset_index(drop=True)
+    df = df[df.split.isin(SPLITS)].reset_index(drop=True)
     if LIMIT:
-        df = pd.concat([df[df.split == "val"].head(LIMIT), df[df.split == "test"].head(LIMIT)], ignore_index=True)
+        df = df.groupby("split").head(LIMIT).reset_index(drop=True)
     print("input", path, df.shape, "GPUs", torch.cuda.device_count(), flush=True)
 
     tok = AutoTokenizer.from_pretrained(MODEL)
@@ -94,6 +97,10 @@ def main():
     df["llm_ext"] = [(a + " " + " ".join(b.split()[:80])).strip() for a, b in zip(df.llm, df.extract)]
     df["ext_llm"] = [(b + " " + a).strip() for a, b in zip(df.llm, df.extract)]
     variants = ["llm", "extract", "llm_ext", "ext_llm"]
+    if not (df.split == "val").any():
+        df.drop(columns=["material", "opening"]).to_csv(f"{OUT}/preds.csv", index=False)
+        print("wrote preds.csv only (no val rows)", flush=True)
+        return
     val = df[df.split == "val"]
     lines = []
     for v in variants:
