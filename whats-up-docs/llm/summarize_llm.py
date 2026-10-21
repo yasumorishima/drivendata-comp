@@ -57,6 +57,7 @@ def rouge2(ref, pred):
 def main():
     path = glob.glob(INPUT, recursive=True)[0]
     df = pd.read_csv(path).fillna("")
+    df = df[df.split != "train"].reset_index(drop=True)
     if LIMIT:
         df = pd.concat([df[df.split == "val"].head(LIMIT), df[df.split == "test"].head(LIMIT)], ignore_index=True)
     print("input", path, df.shape, "GPUs", torch.cuda.device_count(), flush=True)

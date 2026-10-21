@@ -165,6 +165,25 @@ def fit(tab):
     return m
 
 
+def rank_labels(tab):
+    """Relevance grade of each sentence within its paper (top 5% -> 4 ... rest -> 0) for LambdaRank."""
+    q = tab.groupby("doc").y.rank(pct=True, method="first")
+    return np.select([q > 0.95, q > 0.9, q > 0.8, q > 0.6], [4, 3, 2, 1], 0)
+
+
+def fit_rank(tab):
+    tab = tab.sort_values("doc", kind="stable")
+    m = lgb.LGBMRanker(n_estimators=400, learning_rate=0.03, num_leaves=31, min_child_samples=40,
+                       subsample=0.8, subsample_freq=1, colsample_bytree=0.8, lambdarank_truncation_level=20,
+                       verbose=-1)
+    m.fit(tab[feat_cols(tab)], rank_labels(tab), group=tab.groupby("doc", sort=False).size().values)
+    return m
+
+
+def doc_rank(df, sc):
+    return pd.Series(sc).groupby(df.doc.values).rank(pct=True).values
+
+
 CLEAN = True
 
 
@@ -222,27 +241,56 @@ def main():
         for k, v in scores.items():
             if isinstance(k, tuple):
                 print(f"budget {k[0]} clean={k[1]}: ROUGE-2 F1 {np.mean(v):.4f}")
+    elif mode == "cv2":
+        # regression (v2) vs LambdaRank vs their average within-paper rank; and the oracle length
+        tab = table(tr.text.tolist(), tr.summary.tolist())
+        scores = {}
+        for f, (a, b) in enumerate(KFold(5, shuffle=True, random_state=0).split(tr)):
+            trn, (te,) = add_lex(tab[tab.doc.isin(a)], [tab[tab.doc.isin(b)]])
+            mr, mk = fit(trn), fit_rank(trn)
+            for i, df in te.groupby("doc"):
+                df = df.reset_index(drop=True)
+                X = df[feat_cols(df)]
+                r, k = mr.predict(X), mk.predict(X)
+                bl = doc_rank(df, r) + doc_rank(df, k)
+                ref = tr.summary[i]
+                for name, sc, bud in (("reg", r, BUDGET), ("rank", k, BUDGET), ("blend", bl, BUDGET),
+                                      ("reg_oracle_len", r, len(ref.split()))):
+                    scores.setdefault(name, []).append(rouge2(ref, compose(df, sc, bud)))
+            print("fold", f, {k: round(np.mean(v), 4) for k, v in scores.items()}, flush=True)
+        for k, v in scores.items():
+            print(f"{k}: ROUGE-2 F1 {np.mean(v):.4f}")
     elif mode == "material":
-        # input for the LLM: for 100 held-out train papers (to measure) and for the test papers,
-        # the top sentences by the v2 model (in document order, ~MAT words) plus the paper's opening
+        # input for the LLM: the top sentences by the v2 model (in document order, ~MAT words) plus the
+        # paper's opening, for 100 held-out train papers (val, to measure), for the test papers, and,
+        # out of fold, for the other 900 train papers (train, to fine-tune on inputs like the test ones)
         out = sys.argv[3].rstrip("/") + "/"
         te = pd.read_csv(d + "test_features.csv")
         val = tr.sample(100, random_state=7).index
         fit_idx = tr.index.difference(val)
         tab = table(tr.text.tolist(), tr.summary.tolist())
-        trn, (vt, tt) = add_lex(tab[tab.doc.isin(fit_idx)], [tab[tab.doc.isin(val)], table(te.text.tolist())])
-        m = fit(trn)
         rows = []
-        for split, t, frame in (("val", vt, tr), ("test", tt, te)):
+
+        def emit(split, t, frame, m):
             for i, df in t.groupby("doc"):
                 df = df.reset_index(drop=True)
                 sc = m.predict(df[feat_cols(df)])
-                top = sorted(np.argsort(-sc)[: max(1, int(np.searchsorted(np.cumsum(df.words.values[np.argsort(-sc)]), MAT)) + 1)])
+                o = np.argsort(-sc)
+                top = sorted(o[: max(1, int(np.searchsorted(np.cumsum(df.words.values[o]), MAT)) + 1)])
                 rows.append({"paper_id": frame.paper_id.iloc[i], "split": split,
                              "extract": compose(df, sc, BUDGET),
                              "material": " ".join(clean(x) for x in df.sent.iloc[top]),
                              "opening": " ".join(str(frame.text.iloc[i]).split()[:350]),
-                             "reference": frame.summary.iloc[i] if split == "val" else ""})
+                             "reference": frame.summary.iloc[i] if split != "test" else ""})
+
+        trn, (vt, tt) = add_lex(tab[tab.doc.isin(fit_idx)], [tab[tab.doc.isin(val)], table(te.text.tolist())])
+        m = fit(trn)
+        emit("val", vt, tr, m)
+        emit("test", tt, te, m)
+        for a, b in KFold(5, shuffle=True, random_state=3).split(fit_idx):
+            trn, (tb,) = add_lex(tab[tab.doc.isin(fit_idx[a])], [tab[tab.doc.isin(fit_idx[b])]])
+            emit("train", tb, tr, fit(trn))
+            print("oof fold done", flush=True)
         pd.DataFrame(rows).to_csv(out + "material.csv", index=False)
         # a few train examples (not in val) for few-shot prompting
         ex = tr.loc[fit_idx].sample(3, random_state=1)
