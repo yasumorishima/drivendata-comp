@@ -87,6 +87,7 @@ jobs:
           done
 
       - name: Push kernel
+        id: push
         if: env.COLLECT_ONLY != 'true'
         run: |
           set -euo pipefail
@@ -119,7 +120,8 @@ jobs:
           done
 
       - name: Collect output
-        if: always()
+        # not after a failed push: the output there is the previous run's
+        if: always() && steps.push.outcome != 'failure'
         run: |
           set +e
           mkdir -p kout

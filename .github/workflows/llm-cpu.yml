@@ -1,0 +1,86 @@
+name: LLM on CPU
+
+# Kaggle の GPU 枠が尽きたとき用：llama.cpp（4bit GGUF）で LLM 生成を Actions の CPU ランナー 20 本に分けて回す。
+# 起動: requests/llm-cpu.json を push。
+#   {"memo": "...", "dataset": "yasunorim/dd-whats-up-docs-input", "script": "whats-up-docs/llm/cpu_generate.py",
+#    "out_name": "llm-cpu-v1"}
+#   入力は Kaggle dataset の material.csv（Kaggle Run と同じもの）。
+# 出力: data-cache の kout-<out_name>__preds.csv（paper_id, split, llm）。この repo は公開なので標準ランナーは無料。
+
+on:
+  push:
+    paths:
+      - 'requests/llm-cpu.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: llm-cpu
+  cancel-in-progress: false
+
+jobs:
+  gen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: |
+          pip install --quiet 'kaggle==2.0.0' 'kagglesdk==0.1.15' pandas huggingface_hub
+          pip install --quiet llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+          mkdir -p ~/.kaggle
+          python -c "import json,os; json.dump({'username': os.environ['U'], 'key': os.environ['K']}, open(os.path.expanduser('~/.kaggle/kaggle.json'), 'w'))"
+          chmod 600 ~/.kaggle/kaggle.json
+        env:
+          U: ${{ secrets.KAGGLE_USERNAME }}
+          K: ${{ secrets.KAGGLE_KEY }}
+      - name: Generate
+        run: |
+          set -euo pipefail
+          kaggle datasets download "$(jq -r .dataset requests/llm-cpu.json)" -p in --unzip
+          python "$(jq -r .script requests/llm-cpu.json)" in/material.csv ${{ matrix.shard }} 20 "shard-${{ matrix.shard }}.csv"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shard-${{ matrix.shard }}
+          path: shard-${{ matrix.shard }}.csv
+          retention-days: 3
+
+  merge:
+    needs: gen
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: shards
+      - name: Merge and hand over
+        run: |
+          set -euo pipefail
+          name=$(jq -r .out_name requests/llm-cpu.json)
+          mkdir -p kout
+          python - <<'PY'
+          import glob, pandas as pd
+          d = pd.concat([pd.read_csv(f) for f in glob.glob("shards/*/*.csv")], ignore_index=True)
+          d.to_csv("kout/preds.csv", index=False)
+          print(d.split.value_counts().to_dict(), "rows", len(d))
+          open("kout/summary.txt", "w").write(f"rows {len(d)} {d.split.value_counts().to_dict()}\n")
+          PY
+          DD_REPO="${{ github.repository }}" bash tools/local_push.sh "kout-$name" kout
+          f=whats-up-docs/results/kernel-$name.md
+          { echo "# $name ($(date -u +%Y-%m-%dT%H:%MZ), commit ${GITHUB_SHA::7}, LLM on CPU)"; echo;
+            echo "memo: $(jq -r .memo requests/llm-cpu.json)"; echo; echo '```'; cat kout/summary.txt; echo '```'; } > "$f"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$f" && git commit -m "llm on cpu: $name" && (git push || (git pull --rebase && git push))
