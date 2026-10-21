@@ -24,6 +24,7 @@
 |---|---|---|
 | www.drivendata.org | ❌（proxy で 403） | ログイン・DL・提出は GitHub Actions に回す（Secrets にログイン情報あり） |
 | GitHub（この repo） | ✅ push・`gh api`・リリース添付の取得 | ❌ リリースの作成・削除（403）＝Actions に回す |
+| CPU で LLM を回す | ✅（Actions 経由） | `requests/llm-cpu.json`（LLM on CPU：20 本並列、1 本最長 6 時間。他のワークフローは待たされる） |
 | Kaggle の GPU で回す | ✅（Actions 経由） | `requests/kaggle-run.json`（Kaggle Run：入力 dataset 作成→kernel push→完了待ち→出力を data-cache `kout-<name>` へ） |
 | DrivenData への参加登録・提出 | ❌ | `requests/join.json`（Join Competition）・`requests/submit.json`（Submit Prediction）を push |
 | www.drivendata.org のページを読む | ❌ | **`requests/pages.json` を push** → `Fetch Pages` がログインして本文を取り、`bash tools/cloud_setup.sh pages` で読める |
@@ -80,30 +81,32 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 - `pasketti-*/`（On Top of Pasketti、2026-04-06 締切）は過去の作業の跡。仕組み（GPU 学習・提出 zip・自動提出）を流用するときだけ参照する。
 - PC のメモも、開催中のコンペと流用できる仕組みに関係するものだけ集めればよい。
 
-## 現在地（2026-10-20 夜）
+## 現在地（2026-10-21）
 
-- cloud 対応を追加（このファイル・`Cloud Dispatch`・`Data Cache`・`tools/cloud_setup.sh`・`tools/local_push.sh`・`notes/`）。全部 10-19 に実走で確認済み。
-  - `Data Cache` が取れるのは DrivenData のデータページから直接落とせるファイルだけ。外部サイト配布のデータ（別ログイン）は対象外。
-- PC からの受け渡しは 10-20 に完了（`notes/LOCAL_INVENTORY.md`）。
-  - 開催中のコンペのメモ・データは PC に無かった。移したのは仕組みのメモ 4 本（`notes/automation/`）だけ。データは 0 件。
-  - `notes/automation/` は書いた時点のまま（RPi5・PC のパスなど古い記述あり）。使う前に今の repo で確かめる。
-  - PC の `Desktop/Kaggle/DrivenData.txt` は Discord の webhook URL。Secret `DISCORD_WEBHOOK_URL` として 5 本のワークフローが通知に使っている可能性が高いので、Discord 側で消さない。
-- **What's Up Docs に 10-20 参加登録（Join Competition）。10-20 は 2 本提出、最高 LB 0.1789（4 位・抜粋 v2）。**
-  - LLM ゼロショット（Qwen2.5-7B）は検証で抜粋に負けた（0.147 vs 0.181）。次は LoRA 微調整（詳細は `whats-up-docs/CLAUDE.md`）。
+- cloud 対応は 10-19〜20 に完了（`Cloud Dispatch`・`Data Cache`・`Fetch Pages`・`Join`・`Submit Prediction`・`Kaggle Run`）。
+  - 10-21 追加：`LLM on CPU`（Actions 20 本で llama.cpp の 7B を回す。Kaggle の GPU 週枠切れの代わり）・`LLM on CPU merge`。
+  - 10-21 修正：`tools/cloud_setup.sh` のページ送り（添付が 100 を超えると proxy が `repositories/<id>` を拒む）、`Kaggle Run` の PRE_LRT・push 失敗時の誤回収、`Submit Prediction` は data を空白区切りで複数可。
+- PC からの受け渡しは 10-20 に完了（`notes/LOCAL_INVENTORY.md`）。データ 0 件、仕組みのメモ 4 本だけ。
+  - PC の `Desktop/Kaggle/DrivenData.txt` は Discord の webhook URL（Secret `DISCORD_WEBHOOK_URL`）。Discord 側で消さない。
+- **What's Up Docs：最高 LB 0.1867（3 位、v4）。** 10-20 は 2 本、10-21 は 2 本（v3 0.1822 → v4 0.1867）。
+  - 効いたのは「LLM（ゼロショット 7B）に要旨を書かせ、その要旨との一致で本文の文を選ぶ」。生成文そのもの・LoRA・LambdaRank・予算変更は効かない。
+  - 2 位（0.2021）は公開解法あり（`notes/whats-up-docs/public-2nd-botabun.md`）。有料 LLM に文を選ばせる方式。
+- **Kaggle の GPU 週枠（30 時間、Kaggle・SIGNATE と共通）は 10-21 に使い切った。**
 - GEMS は参加資格が無く見送り（10-20 user 確認）。
-- 開催中コンペ（10-19 の Check Competitions）：8 件。
+- 開催中コンペ（10-21 の Check Competitions）：8 件、新規なし。
 
   | 締切 | 分野 | 賞金 | 参加 | コンペ |
   |---|---|---|---|---|
-  | 2026-12-03 | energy | $300,000 | 665 | The Geologic Enhanced Mapping System (GEMS) Prize |
-  | 2027-02-01 | health | - | 176 | SNOMED CT Entity Linking Benchmark |
-  | 2028-04-03 | development | - | 647 | What's Up, Docs? Document Summarization with LLMs |
+  | 2026-12-03 | energy | $300,000 | 684 | GEMS Prize（資格なし） |
+  | 2027-02-01 | health | - | 177 | SNOMED CT Entity Linking Benchmark |
+  | 2028-04-03 | development | - | 650 | What's Up, Docs? Document Summarization with LLMs |
   | 2028-07-03 以降 | - | - | - | 練習コンペ 5 件（Flu Shot・Conser-vision・Richter's・DengAI・Pump it Up） |
 
 ## 次の一手
 
 1. **What's Up Docs（`whats-up-docs/CLAUDE.md` が正本）で毎日 3 本（UTC 0 時で回復）を 1 本ずつ出す。**
-   - 出し方：`requests/submit.json` を push → `Submit Prediction` が Actions の中で予測を作って提出し、点数を `whats-up-docs/results/submissions.md` に追記。
+   - 次の部品：LLM の手がかりを増やす（別の促しの 2 本目の要旨・LLM に文番号を選ばせる）。生成は `LLM on CPU`。
+   - 出し方：`requests/submit.json` を push → `Submit Prediction` が点数を `whats-up-docs/results/submissions.md` に追記。
    - 毎日 UTC 0:07（JST 9:07）に Routine `trig_01Rp6L6ZKtha2GgqYrrDVvtn` がこのセッションを起こす。
 2. SNOMED CT Benchmark：データは PhysioNet の資格審査（CITI 研修など）が要る。user に頼むかは What's Up Docs が軌道に乗ってから決める。
 3. この branch を master に入れる（新しいセッションと PC が branch の切り替えなしで使えるように）。
