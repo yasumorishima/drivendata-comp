@@ -1,6 +1,6 @@
-# lora-v1 (2026-10-21T01:07Z, commit 0bcc343, status error)
+# lora-v1 (2026-10-21T01:09Z, commit 1148e7b, status )
 
-memo: LoRA v1: Qwen2.5-1.5B-Instruct を学習 900 本（OOF 抜粋 450 語＋冒頭 350 語 → 著者の要旨）で 2 epoch 微調整。検証 100 本で抜粋 0.181 と比べる
+memo: LoRA v1（再）: torchao を外して peft を通す。入力 dataset は前回の版を使う。Qwen2.5-1.5B を学習 900 本で 2 epoch
 
 ```
 (no val_scores.txt)
