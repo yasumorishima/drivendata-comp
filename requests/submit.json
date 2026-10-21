@@ -1,3 +1,3 @@
-{"memo": "v3 LLM 誘導の抜粋: v2 の文スコアの順位 + ゼロショット 7B 要旨との 2 語並び一致率の順位で選び直す。検証 100 本 0.1801→0.1866",
- "comp": "/competitions/297/whats-up-docs/", "data": "whats-up-docs kout-llm-v1",
- "script": "whats-up-docs/guided.py"}
+{"memo": "v4 LLM 要旨との一致（2 語並び・単語・順位）を LightGBM の特徴に学ばせる（CPU 4bit 7B のゼロショット要旨）: CV 0.1805（v2 0.1744、5 fold 全部で上）",
+ "comp": "/competitions/297/whats-up-docs/", "data": "whats-up-docs kout-llm-cpu-v1",
+ "script": "whats-up-docs/v4.py"}
