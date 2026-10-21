@@ -1,9 +1,10 @@
 {
- "memo": "LoRA v1（再）: torchao を外して peft を通す。入力 dataset は前回の版を使う。Qwen2.5-1.5B を学習 900 本で 2 epoch",
+ "memo": "LoRA v1: 10-21 01:09 に push 済みの kernel v2 の完了を待って出力を集める（前回は PRE_LRT の取り込みで落ちた）",
  "data": "whats-up-docs",
  "prep": "whats-up-docs/extractive.py material",
  "dataset": "yasunorim/dd-whats-up-docs-input",
  "kernel_dir": "whats-up-docs/lora",
  "out_name": "lora-v1",
- "reuse_dataset": true
+ "reuse_dataset": true,
+ "collect_only": true
 }

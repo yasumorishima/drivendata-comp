@@ -7,6 +7,7 @@ name: Kaggle Run
 # 起動: requests/kaggle-run.json を push。
 #   {"memo": "...", "data": "whats-up-docs", "prep": "whats-up-docs/extractive.py material",
 #    "dataset": "yasunorim/dd-whats-up-docs-input", "kernel_dir": "whats-up-docs/llm", "out_name": "llm-v1"}
+#   "collect_only": true で push せず、今動いている（か最後の）実行の完了を待って出力を集める。
 #   "reuse_dataset": true で入力 dataset を作り直さずに今の版を使う（prep の 40 分を省く）。
 #   prep は `python <prep> <data_dir> <dataset_dir>` で dataset に入れるファイルを書く。
 # GPU は Kaggle の週 30 時間枠（Kaggle・SIGNATE と共通）を使う。
@@ -44,6 +45,7 @@ jobs:
             [ -n "$v" ] || { echo "::error::requests/kaggle-run.json needs $k"; exit 1; }
             { echo "REQ_${k^^}<<EOF"; echo "$v"; echo "EOF"; } >> "$GITHUB_ENV"
           done
+          echo "COLLECT_ONLY=$(jq -r '.collect_only // false' requests/kaggle-run.json)" >> "$GITHUB_ENV"
           echo "REUSE=$(jq -r '.reuse_dataset // false' requests/kaggle-run.json)" >> "$GITHUB_ENV"
           echo "KERNEL_ID=$(jq -r .id "$(jq -r .kernel_dir requests/kaggle-run.json)/kernel-metadata.json")" >> "$GITHUB_ENV"
 
@@ -85,6 +87,7 @@ jobs:
           done
 
       - name: Push kernel
+        if: env.COLLECT_ONLY != 'true'
         run: |
           set -euo pipefail
           PRE_LRT=$(python -c "
@@ -93,7 +96,7 @@ jobs:
           try:
               k = [x for x in a.kernels_list(user='${KERNEL_ID%%/*}', search='${KERNEL_ID#*/}', page_size=100) if x.ref == '$KERNEL_ID']
               print(k[0].last_run_time if k else '')
-          except Exception: print('')")
+          except Exception: print('')" 2>/dev/null | tail -1)
           echo "PRE_LRT=$PRE_LRT" >> "$GITHUB_ENV"
           OUT=$(kaggle kernels push -p "$REQ_KERNEL_DIR" 2>&1) || true
           echo "$OUT"
@@ -102,7 +105,7 @@ jobs:
       - name: Wait for the kernel
         id: wait
         run: |
-          sleep 120
+          [ "$COLLECT_ONLY" = true ] || sleep 120
           for i in $(seq 1 330); do
             s=$(python -c "
           from kaggle.api.kaggle_api_extended import KaggleApi
