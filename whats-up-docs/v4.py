@@ -40,12 +40,12 @@ def add_llm(tab, texts):
     return pd.concat(out)
 
 
-def summarize(m, tab, n_docs):
+def summarize(m, tab, n_docs, budget=BUDGET):
     from extractive import feat_cols
     res = [""] * n_docs
     for i, df in tab.groupby("doc"):
         df = df.reset_index(drop=True)
-        res[i] = compose(df, m.predict(df[feat_cols(df)]), BUDGET)
+        res[i] = compose(df, m.predict(df[feat_cols(df)]), budget)
     return res
 
 
@@ -57,13 +57,17 @@ def main():
     tab = add_llm(tab, [llm.get(p, "") for p in tr.paper_id])
     if mode == "cv":
         base = [c for c in tab.columns if not c.startswith("llm_")]
-        scores = {"v2": [], "v4": []}
+        budgets = [int(x) for x in os.environ.get("V4_BUDGETS", str(BUDGET)).split(",")]
+        scores = {}
         for f, (a, b) in enumerate(KFold(5, shuffle=True, random_state=0).split(tr)):
             trn, (te,) = add_lex(tab[tab.doc.isin(a)], [tab[tab.doc.isin(b)]])
             for name, cols in (("v2", base + ["lex"]), ("v4", list(trn.columns))):
+                if name == "v2" and len(budgets) > 1:
+                    continue
                 m = fit(trn[cols])
-                summ = summarize(m, te[cols], len(tr))
-                scores[name] += [rouge2(tr.summary[i], summ[i]) for i in b]
+                for bud in budgets:
+                    summ = summarize(m, te[cols], len(tr), bud)
+                    scores.setdefault(f"{name}@{bud}", []).extend(rouge2(tr.summary[i], summ[i]) for i in b)
             print("fold", f, {k: round(np.mean(v), 4) for k, v in scores.items()}, flush=True)
         for k, v in scores.items():
             print(f"{k}: ROUGE-2 F1 {np.mean(v):.4f}")
