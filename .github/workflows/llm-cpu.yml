@@ -46,7 +46,10 @@ jobs:
         run: |
           set -euo pipefail
           kaggle datasets download "$(jq -r .dataset requests/llm-cpu.json)" -p in --unzip
-          python "$(jq -r .script requests/llm-cpu.json)" in/material.csv ${{ matrix.shard }} 20 "shard-${{ matrix.shard }}.csv"
+          skip=$(jq -r '.skip_from // empty' requests/llm-cpu.json)   # e.g. "kout-llm-cpu-v1": only the papers missing there
+          if [ -n "$skip" ]; then DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh "$skip"; fi
+          python "$(jq -r .script requests/llm-cpu.json)" in/material.csv ${{ matrix.shard }} 20 "shard-${{ matrix.shard }}.csv" \
+            "$RUNNER_TEMP/env/data/$skip/preds.csv"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -69,10 +72,17 @@ jobs:
         run: |
           set -euo pipefail
           name=$(jq -r .out_name requests/llm-cpu.json)
+          skip=$(jq -r '.skip_from // empty' requests/llm-cpu.json)
+          if [ -n "$skip" ]; then DD_REPO="${{ github.repository }}" bash tools/cloud_setup.sh "$skip"; fi
           mkdir -p kout
           python - <<'PY'
           import glob, pandas as pd
           d = pd.concat([pd.read_csv(f) for f in glob.glob("shards/*/*.csv")], ignore_index=True)
+          import json, os
+          skip = json.load(open("requests/llm-cpu.json")).get("skip_from")
+          if skip:  # add the earlier run's papers
+              old = pd.read_csv(os.path.expanduser(f"~/drivendata-env/data/{skip}/preds.csv")).fillna("")
+              d = pd.concat([old[~old.paper_id.isin(d.paper_id)], d], ignore_index=True)
           d.to_csv("kout/preds.csv", index=False)
           print(d.split.value_counts().to_dict(), "rows", len(d))
           open("kout/summary.txt", "w").write(f"rows {len(d)} {d.split.value_counts().to_dict()}\n")

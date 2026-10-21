@@ -35,18 +35,28 @@ FILES = ["qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf", "qwen2.5-7b-instruct-
 SYSTEM = "You are an expert social scientist who writes precise academic abstracts."
 
 if __name__ == "__main__":
-    _, path, shard, n, out = sys.argv
+    _, path, shard, n, out = sys.argv[:5]
     df = pd.read_csv(path).fillna("")
+    if len(sys.argv) > 5 and os.path.exists(sys.argv[5]):  # skip papers already done in an earlier run
+        done = pd.read_csv(sys.argv[5]).fillna("")
+        df = df[~df.paper_id.isin(done.paper_id[done.llm.str.len() > 0])]
     df = df.iloc[int(shard)::int(n)]
     paths = [hf_hub_download(REPO, f, local_dir=os.path.expanduser("~/gguf")) for f in FILES]
-    llm = Llama(paths[0], n_ctx=2048, n_threads=os.cpu_count(), verbose=False)
+    llm = Llama(paths[0], n_ctx=4096, n_threads=os.cpu_count(), verbose=False)
     rows, t0 = [], time.time()
     for k, r in enumerate(df.itertuples()):
-        o = llm.create_chat_completion(
-            [{"role": "system", "content": SYSTEM},
-             {"role": "user", "content": PROMPT.format(opening=r.opening, material=r.material)}],
-            temperature=0, max_tokens=330, repeat_penalty=1.05)
-        text = o["choices"][0]["message"]["content"]
+        material, text = r.material, ""
+        for _ in range(4):
+            try:
+                o = llm.create_chat_completion(
+                    [{"role": "system", "content": SYSTEM},
+                     {"role": "user", "content": PROMPT.format(opening=r.opening, material=material)}],
+                    temperature=0, max_tokens=330, repeat_penalty=1.05)
+                text = o["choices"][0]["message"]["content"]
+                break
+            except ValueError as e:  # prompt too long for the context window
+                print("shorten:", e, flush=True)
+                material = " ".join(material.split()[: int(len(material.split()) * 0.7)])
         text = re.sub(r"^\s*(abstract|summary)\s*[:.]\s*", "", text, flags=re.I).replace("\n", " ").strip()
         rows.append({"paper_id": r.paper_id, "split": r.split, "llm": text})
         print(f"{k + 1}/{len(df)} {time.time() - t0:.0f}s", flush=True)
