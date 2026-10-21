@@ -7,6 +7,7 @@ name: Kaggle Run
 # 起動: requests/kaggle-run.json を push。
 #   {"memo": "...", "data": "whats-up-docs", "prep": "whats-up-docs/extractive.py material",
 #    "dataset": "yasunorim/dd-whats-up-docs-input", "kernel_dir": "whats-up-docs/llm", "out_name": "llm-v1"}
+#   "reuse_dataset": true で入力 dataset を作り直さずに今の版を使う（prep の 40 分を省く）。
 #   prep は `python <prep> <data_dir> <dataset_dir>` で dataset に入れるファイルを書く。
 # GPU は Kaggle の週 30 時間枠（Kaggle・SIGNATE と共通）を使う。
 
@@ -43,6 +44,7 @@ jobs:
             [ -n "$v" ] || { echo "::error::requests/kaggle-run.json needs $k"; exit 1; }
             { echo "REQ_${k^^}<<EOF"; echo "$v"; echo "EOF"; } >> "$GITHUB_ENV"
           done
+          echo "REUSE=$(jq -r '.reuse_dataset // false' requests/kaggle-run.json)" >> "$GITHUB_ENV"
           echo "KERNEL_ID=$(jq -r .id "$(jq -r .kernel_dir requests/kaggle-run.json)/kernel-metadata.json")" >> "$GITHUB_ENV"
 
       - name: Install
@@ -59,6 +61,7 @@ jobs:
           K: ${{ secrets.KAGGLE_KEY }}
 
       - name: Build input dataset
+        if: env.REUSE != 'true'
         run: |
           set -euo pipefail
           DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh "$REQ_DATA"

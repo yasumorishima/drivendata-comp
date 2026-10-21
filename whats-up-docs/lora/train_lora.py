@@ -17,6 +17,8 @@ import sys
 import time
 from collections import Counter
 
+# Kaggle's image ships an old torchao that the latest peft refuses to import
+subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", "torchao"], check=False)
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "peft"], check=False)
 
 import pandas as pd  # noqa: E402
