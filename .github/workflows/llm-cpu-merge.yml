@@ -1,0 +1,45 @@
+name: LLM on CPU merge
+
+# LLM on CPU の merge だけやり直す（成果物 shard-* は 3 日残る）。
+# 起動: requests/llm-cpu-merge.json を push。 {"memo": "...", "run_id": 39536595308, "out_name": "llm-cpu-v1"}
+
+on:
+  push:
+    paths:
+      - 'requests/llm-cpu-merge.json'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Merge and hand over
+        run: |
+          set -euo pipefail
+          pip install --quiet pandas
+          run=$(jq -r .run_id requests/llm-cpu-merge.json); name=$(jq -r .out_name requests/llm-cpu-merge.json)
+          gh run download "$run" -R "${{ github.repository }}" -D shards
+          mkdir -p kout
+          python - <<'PY'
+          import glob, pandas as pd
+          d = pd.concat([pd.read_csv(f) for f in glob.glob("shards/*/*.csv")], ignore_index=True)
+          d.to_csv("kout/preds.csv", index=False)
+          open("kout/summary.txt", "w").write(f"rows {len(d)} {d.split.value_counts().to_dict()}\n")
+          print(open("kout/summary.txt").read())
+          PY
+          DD_REPO="${{ github.repository }}" bash tools/local_push.sh "kout-$name" kout
+          f=whats-up-docs/results/kernel-$name.md
+          { echo "# $name ($(date -u +%Y-%m-%dT%H:%MZ), LLM on CPU run $run)"; echo;
+            echo "memo: $(jq -r .memo requests/llm-cpu-merge.json)"; echo; echo '```'; cat kout/summary.txt; echo '```'; } > "$f"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$f" && git commit -m "llm on cpu merge: $name" && (git push || (git pull --rebase && git push))

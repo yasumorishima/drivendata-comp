@@ -1,0 +1,2 @@
+{"memo": "llm-cpu-v1 の merge やり直し（pandas 無しで落ちた）。学習 868・val 100・test 345 本（shard 17 の残り 32 本は文脈超過で欠け）",
+ "run_id": 39536595308, "out_name": "llm-cpu-v1"}

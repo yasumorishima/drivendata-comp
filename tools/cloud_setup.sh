@@ -16,7 +16,14 @@ mkdir -p "$ENVD/data" "$ENVD/dl"
 rel=$(gh api "repos/$REPO/releases?per_page=100")
 id=$(printf '%s' "$rel" | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin) if x.get("draft") and x.get("tag_name")==sys.argv[1]]; print(r[0]["id"] if r else "")' "$TAG")
 [ -n "$id" ] || { echo "no draft release data-cache: push requests/data-cache.json or run tools/local_push.sh on the PC"; exit 1; }
-assets=$(gh api "repos/$REPO/releases/$id/assets?per_page=100" --paginate --jq '.[] | {id, size, name} | tostring')
+# page by number: --paginate follows "repositories/<id>" links, which the cloud proxy refuses
+assets=""
+for page in $(seq 1 50); do
+  got=$(gh api "repos/$REPO/releases/$id/assets?per_page=100&page=$page" --jq '.[] | {id, size, name} | tostring')
+  [ -n "$got" ] || break
+  assets="$assets${assets:+
+}$got"
+done
 
 want=("$@")
 names=$(printf '%s' "$assets" | python3 -c '
