@@ -14,8 +14,21 @@ import pandas as pd
 from huggingface_hub import hf_hub_download
 from llama_cpp import Llama
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from summarize_llm import PROMPT  # noqa: E402
+# same text as summarize_llm.py (that file imports torch, which the CPU runner does not have)
+PROMPT = """Below are the opening of a social science research paper and the sentences that best describe its contribution.
+
+Write the paper's abstract: one paragraph of about 170 words, in plain text, as the authors would write it \
+(for example "This article examines ...", "Using data from ..., we find ..."). State the question, the data or \
+method, the main findings and the implications. Reuse the paper's own key terms and phrases wherever possible. \
+Do not add a title, headings, citations or anything that is not in the paper.
+
+OPENING OF THE PAPER:
+{opening}
+
+KEY SENTENCES:
+{material}
+
+ABSTRACT:"""
 
 REPO = "Qwen/Qwen2.5-7B-Instruct-GGUF"  # Apache-2.0
 FILES = ["qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf", "qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf"]

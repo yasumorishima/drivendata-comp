@@ -1,2 +1,2 @@
 {"memo": "llm-cpu-v1: Qwen2.5-7B ゼロショット要旨（4bit・llama.cpp）を全 1,345 本に作る（学習 900 本は v4 の特徴の学習用、val/test は同じ量子化で揃える）",
- "dataset": "yasunorim/dd-whats-up-docs-input", "script": "whats-up-docs/llm/cpu_generate.py", "out_name": "llm-cpu-v1"}
+ "dataset": "yasunorim/dd-whats-up-docs-input", "script": "whats-up-docs/llm/cpu_generate.py", "out_name": "llm-cpu-v1", "try": 2}
