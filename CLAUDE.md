@@ -81,31 +81,32 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 - `pasketti-*/`（On Top of Pasketti、2026-04-06 締切）は過去の作業の跡。仕組み（GPU 学習・提出 zip・自動提出）を流用するときだけ参照する。
 - PC のメモも、開催中のコンペと流用できる仕組みに関係するものだけ集めればよい。
 
-## 現在地（2026-10-21）
+## 現在地（2026-10-22）
 
-- cloud 対応は 10-19〜20 に完了（`Cloud Dispatch`・`Data Cache`・`Fetch Pages`・`Join`・`Submit Prediction`・`Kaggle Run`）。
-  - 10-21 追加：`LLM on CPU`（Actions 20 本で llama.cpp の 7B を回す。Kaggle の GPU 週枠切れの代わり）・`LLM on CPU merge`。
-  - 10-21 修正：`tools/cloud_setup.sh` のページ送り（添付が 100 を超えると proxy が `repositories/<id>` を拒む）、`Kaggle Run` の PRE_LRT・push 失敗時の誤回収、`Submit Prediction` は data を空白区切りで複数可。
-- PC からの受け渡しは 10-20 に完了（`notes/LOCAL_INVENTORY.md`）。データ 0 件、仕組みのメモ 4 本だけ。
+- cloud 対応は 10-19〜21 に完了（`Cloud Dispatch`・`Data Cache`・`Fetch Pages`・`Join`・`Submit Prediction`・`Kaggle Run`・`LLM on CPU`）。
+  - 10-22 追加：`LLM on CPU` に prep job（入力を data-cache から作り、非公開の `kin-<name>` に置く）、`Cleanup Artifacts`。
+  - 🔴 **公開 repo の Actions artifact は誰でも落とせる**。論文の文を artifact に置かない（10-22 に一度置いてしまい、消す依頼を出した）。
+- PC からの受け渡しは 10-20 に完了（`notes/LOCAL_INVENTORY.md`）。
   - PC の `Desktop/Kaggle/DrivenData.txt` は Discord の webhook URL（Secret `DISCORD_WEBHOOK_URL`）。Discord 側で消さない。
-- **What's Up Docs：最高 LB 0.1867（3 位、v4）。** 10-20 は 2 本、10-21 は 2 本（v3 0.1822 → v4 0.1867）。
-  - 効いたのは「LLM（ゼロショット 7B）に要旨を書かせ、その要旨との一致で本文の文を選ぶ」。生成文そのもの・LoRA・LambdaRank・予算変更は効かない。
+- **What's Up Docs：最高 LB 0.1867（3 位、v4）。** 10-22 は 1 本（v5 0.1867＝同点）。
+  - 効いたのは「LLM（ゼロショット 7B）に要旨を書かせ、その要旨との一致で本文の文を選ぶ」。
+  - 10-22 に試して効かなかったもの：LLM の文番号選び（v5）・2 本目の要旨（v6）・文埋め込み（v7）・14B。どれも CV ±0.001 以内。
   - 2 位（0.2021）は公開解法あり（`notes/whats-up-docs/public-2nd-botabun.md`）。有料 LLM に文を選ばせる方式。
-- **Kaggle の GPU 週枠（30 時間、Kaggle・SIGNATE と共通）は 10-21 に使い切った。**
+- Kaggle の GPU 週枠（30 時間、Kaggle・SIGNATE と共通）は 10-21 に使い切った。
 - GEMS は参加資格が無く見送り（10-20 user 確認）。
-- 開催中コンペ（10-21 の Check Competitions）：8 件、新規なし。
+- 開催中コンペ（10-22 の Check Competitions）：8 件、新規なし。
 
   | 締切 | 分野 | 賞金 | 参加 | コンペ |
   |---|---|---|---|---|
-  | 2026-12-03 | energy | $300,000 | 684 | GEMS Prize（資格なし） |
+  | 2026-12-03 | energy | $300,000 | 695 | GEMS Prize（資格なし） |
   | 2027-02-01 | health | - | 177 | SNOMED CT Entity Linking Benchmark |
-  | 2028-04-03 | development | - | 650 | What's Up, Docs? Document Summarization with LLMs |
+  | 2028-04-03 | development | - | 651 | What's Up, Docs? Document Summarization with LLMs |
   | 2028-07-03 以降 | - | - | - | 練習コンペ 5 件（Flu Shot・Conser-vision・Richter's・DengAI・Pump it Up） |
 
 ## 次の一手
 
-1. **What's Up Docs（`whats-up-docs/CLAUDE.md` が正本）で毎日 3 本（UTC 0 時で回復）を 1 本ずつ出す。**
-   - 次の部品：LLM の手がかりを増やす（別の促しの 2 本目の要旨・LLM に文番号を選ばせる）。生成は `LLM on CPU`。
+1. **What's Up Docs（`whats-up-docs/CLAUDE.md` が正本）で毎日 3 本（UTC 0 時で回復）を 1 本ずつ出す。** 新しい部品が無い日は出さない。
+   - 次の部品：小さな transformer を微調整して文が要旨に入る度合いを直接予測し、LightGBM の特徴にする。
    - 出し方：`requests/submit.json` を push → `Submit Prediction` が点数を `whats-up-docs/results/submissions.md` に追記。
    - 毎日 UTC 0:07（JST 9:07）に Routine `trig_01Rp6L6ZKtha2GgqYrrDVvtn` がこのセッションを起こす。
 2. SNOMED CT Benchmark：データは PhysioNet の資格審査（CITI 研修など）が要る。user に頼むかは What's Up Docs が軌道に乗ってから決める。
