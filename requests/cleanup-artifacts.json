@@ -1,2 +1,2 @@
-{"memo": "LLM on CPU の入力（論文の文）と shard の成果物を消す（10-21・10-22 の sel の 2 run。abs2 の run は終わってから）",
- "run_ids": [39536595308, 39699929902]}
+{"memo": "LLM on CPU abs2 の run（39712899767）の入力（論文の文）と shard を消す。merge 済み",
+ "run_ids": [39712899767]}
