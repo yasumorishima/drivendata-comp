@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  actions: write   # merge が自分の成果物を消す（公開 repo の成果物は誰でも落とせる）
 
 concurrency:
   group: llm-cpu
@@ -41,11 +42,8 @@ jobs:
           DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh $(jq -r .prep_data requests/llm-cpu.json)
           data=$(jq -r .prep_data requests/llm-cpu.json); data=${data%% *}
           python "$prep" "$RUNNER_TEMP/env/data/$data" in/material.csv
-      - uses: actions/upload-artifact@v4
-        with:
-          name: input
-          path: in
-          retention-days: 1
+          # 入力は論文の文を含むので、公開の成果物ではなく非公開の data-cache に置く
+          DD_REPO="${{ github.repository }}" bash tools/local_push.sh "kin-$(jq -r .out_name requests/llm-cpu.json)" in
 
   gen:
     needs: prep
@@ -72,14 +70,13 @@ jobs:
         env:
           U: ${{ secrets.KAGGLE_USERNAME }}
           K: ${{ secrets.KAGGLE_KEY }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: input
-          path: in
       - name: Generate
         run: |
           set -euo pipefail
-          if [ -f in/material.csv ]; then echo "input from prep"; else
+          if [ -n "$(jq -r '.prep // empty' requests/llm-cpu.json)" ]; then
+            n="kin-$(jq -r .out_name requests/llm-cpu.json)"
+            DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh "$n"
+            mkdir -p in && cp "$RUNNER_TEMP/env/data/$n/material.csv" in/; else
             kaggle datasets download "$(jq -r .dataset requests/llm-cpu.json)" -p in --unzip; fi
           skip=$(jq -r '.skip_from // empty' requests/llm-cpu.json)   # e.g. "kout-llm-cpu-v1": only the papers missing there
           if [ -n "$skip" ]; then DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh "$skip"; fi
@@ -134,3 +131,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$f" && git commit -m "llm on cpu: $name" && (git push || (git pull --rebase && git push))
+          for a in $(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=100" --jq '.artifacts[].id'); do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$a"; done   # shard はもう data-cache にある

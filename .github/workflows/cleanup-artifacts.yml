@@ -1,0 +1,29 @@
+name: Cleanup Artifacts
+
+# 公開 repo の Actions 成果物は GitHub にログインした誰でも落とせる。配布データ由来のもの（論文の文など）を消す。
+# 起動: requests/cleanup-artifacts.json を push。{"memo": "...", "run_ids": [123, 456]}（その run の成果物を全部消す）
+
+on:
+  push:
+    paths:
+      - 'requests/cleanup-artifacts.json'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Delete
+        run: |
+          set -euo pipefail
+          for r in $(jq -r '.run_ids[]' requests/cleanup-artifacts.json); do
+            for a in $(gh api "repos/${{ github.repository }}/actions/runs/$r/artifacts?per_page=100" --jq '.artifacts[].id'); do
+              gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$a" && echo "deleted $a (run $r)"
+            done
+          done

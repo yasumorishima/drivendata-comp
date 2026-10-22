@@ -156,3 +156,9 @@ Artifactから `submission.zip` をダウンロード → DrivenDataコンペペ
 | `KAGGLE_USERNAME` | Kaggleユーザー名 |
 | `KAGGLE_KEY` | Kaggle APIキー |
 | `GH_PAT` | GitHub PAT（Kaggle kernelからArtifact DL用） |
+
+## 🔴 公開 repo の Actions 成果物（artifact）は誰でも落とせる（2026-10-22）
+
+- GitHub にログインした誰でも公開 repo の artifact を DL できる。**配布データ由来のもの（論文の文・音声）を artifact に置かない。**
+- `LLM on CPU` の入力（prep が作る論文の上位文）は data-cache の `kin-<out_name>` に置く。merge は自分の shard の artifact を消す。
+- 消し忘れは `requests/cleanup-artifacts.json`（`{"memo", "run_ids": [...]}`）→ `Cleanup Artifacts`。cloud からの DELETE は 403。
