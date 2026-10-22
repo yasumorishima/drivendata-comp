@@ -30,8 +30,9 @@ KEY SENTENCES:
 
 ABSTRACT:"""
 
-REPO = "Qwen/Qwen2.5-7B-Instruct-GGUF"  # Apache-2.0
-FILES = ["qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf", "qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf"]
+REPO = os.environ.get("LLM_REPO", "Qwen/Qwen2.5-7B-Instruct-GGUF")  # Apache-2.0 (14B too)
+FILES = os.environ.get("LLM_FILES", "qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf "
+                       "qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf").split()
 SYSTEM = "You are an expert social scientist who writes precise academic abstracts."
 
 if __name__ == "__main__":
@@ -41,7 +42,7 @@ if __name__ == "__main__":
         done = pd.read_csv(sys.argv[5]).fillna("")
         df = df[~df.paper_id.isin(done.paper_id[done.llm.str.len() > 0])]
     df = df.iloc[int(shard)::int(n)]
-    paths = [hf_hub_download(REPO, f, local_dir=os.path.expanduser("~/gguf")) for f in FILES]
+    paths = [hf_hub_download(REPO, f, local_dir=os.environ.get("LLM_DIR", os.path.expanduser("~/gguf"))) for f in FILES]
     llm = Llama(paths[0], n_ctx=4096, n_threads=os.cpu_count(), verbose=False)
     rows, t0 = [], time.time()
     for k, r in enumerate(df.itertuples()):
