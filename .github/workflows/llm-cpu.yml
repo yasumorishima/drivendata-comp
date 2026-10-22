@@ -5,6 +5,8 @@ name: LLM on CPU
 #   {"memo": "...", "dataset": "yasunorim/dd-whats-up-docs-input", "script": "whats-up-docs/llm/cpu_generate.py",
 #    "out_name": "llm-cpu-v1"}
 #   入力は Kaggle dataset の material.csv（Kaggle Run と同じもの）。
+#   "prep": "whats-up-docs/llm/select_prep.py", "prep_data": "whats-up-docs kout-llm-cpu-v1" を付けると、
+#   代わりに prep job が data-cache から入力を作る（`python <prep> <data_dir> material.csv`）。
 # 出力: data-cache の kout-<out_name>__preds.csv（paper_id, split, llm）。この repo は公開なので標準ランナーは無料。
 
 on:
@@ -20,8 +22,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  gen:
+  prep:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build input from data-cache
+        run: |
+          set -euo pipefail
+          prep=$(jq -r '.prep // empty' requests/llm-cpu.json)
+          mkdir -p in
+          if [ -z "$prep" ]; then echo "no prep: gen uses the Kaggle dataset"; touch in/none; exit 0; fi
+          pip install --quiet pandas numpy scikit-learn lightgbm
+          DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh $(jq -r .prep_data requests/llm-cpu.json)
+          data=$(jq -r .prep_data requests/llm-cpu.json); data=${data%% *}
+          python "$prep" "$RUNNER_TEMP/env/data/$data" in/material.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: input
+          path: in
+          retention-days: 1
+
+  gen:
+    needs: prep
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     timeout-minutes: 350
     strategy:
       fail-fast: false
@@ -42,10 +72,15 @@ jobs:
         env:
           U: ${{ secrets.KAGGLE_USERNAME }}
           K: ${{ secrets.KAGGLE_KEY }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: input
+          path: in
       - name: Generate
         run: |
           set -euo pipefail
-          kaggle datasets download "$(jq -r .dataset requests/llm-cpu.json)" -p in --unzip
+          if [ -f in/material.csv ]; then echo "input from prep"; else
+            kaggle datasets download "$(jq -r .dataset requests/llm-cpu.json)" -p in --unzip; fi
           skip=$(jq -r '.skip_from // empty' requests/llm-cpu.json)   # e.g. "kout-llm-cpu-v1": only the papers missing there
           if [ -n "$skip" ]; then DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh "$skip"; fi
           python "$(jq -r .script requests/llm-cpu.json)" in/material.csv ${{ matrix.shard }} 20 "shard-${{ matrix.shard }}.csv" \
@@ -71,6 +106,7 @@ jobs:
       - run: pip install --quiet pandas
       - uses: actions/download-artifact@v4
         with:
+          pattern: shard-*
           path: shards
       - name: Merge and hand over
         run: |
