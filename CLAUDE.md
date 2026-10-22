@@ -93,6 +93,9 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
   - 10-22 に試して効かなかったもの：LLM の文番号選び（v5）・2 本目の要旨（v6）・文埋め込み（v7）・14B。どれも CV ±0.001 以内。
   - 2 位（0.2021）は公開解法あり（`notes/whats-up-docs/public-2nd-botabun.md`）。有料 LLM に文を選ばせる方式。
 - Kaggle の GPU 週枠（30 時間、Kaggle・SIGNATE と共通）は 10-21 に使い切った。
+- 🔴 **Kaggle の GPU が使えないとき（週枠切れなど）は TPU で回す**（2026-10-22 user 指示：「kaggle GPU使えないときは、TPUで。メモ」）。
+  - TPU は GPU とは別の週枠（Kaggle・SIGNATE と共通）。切り替えは kernel の `kernel-metadata.json` で `"enable_gpu": "false", "enable_tpu": "true"`。
+  - TPU では CUDA 前提のもの（bitsandbytes・llama.cpp の CUDA 版・vLLM）が動かない。PyTorch/XLA か JAX/Flax で書き直す。
 - GEMS は参加資格が無く見送り（10-20 user 確認）。
 - 開催中コンペ（10-22 の Check Competitions）：8 件、新規なし。
 

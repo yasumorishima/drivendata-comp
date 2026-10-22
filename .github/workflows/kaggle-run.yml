@@ -11,6 +11,7 @@ name: Kaggle Run
 #   "reuse_dataset": true で入力 dataset を作り直さずに今の版を使う（prep の 40 分を省く）。
 #   prep は `python <prep> <data_dir> <dataset_dir>` で dataset に入れるファイルを書く。
 # GPU は Kaggle の週 30 時間枠（Kaggle・SIGNATE と共通）を使う。
+# GPU の枠が無いときは TPU（別枠）で回す：kernel-metadata.json を enable_gpu false / enable_tpu true にする。
 
 on:
   push:

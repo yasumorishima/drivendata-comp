@@ -64,7 +64,7 @@
 
 1. **30 文の中から選ぶ力を上げる（候補内の上限 0.275、今 0.18）**。LLM の手がかり（要旨・番号選び・2 本目の要旨・14B）は 10-22 に出し尽くした。
    - 次の部品：**小さな transformer（MiniLM / DeBERTa-small）を学習 1,000 本で微調整して「文が要旨に入る度合い y」を直接予測**し、OOF の点を LightGBM の特徴にする。
-     TF-IDF の Ridge（lex）より意味で効くはず。v4 の上位 60 文に絞れば 6 万文＝CPU でも 1 epoch 20 分前後（ここの cloud か Actions）。Kaggle の GPU 週枠が戻ればそちらで DeBERTa-base。
+     TF-IDF の Ridge（lex）より意味で効くはず。v4 の上位 60 文に絞れば 6 万文＝CPU でも 1 epoch 20 分前後（ここの cloud か Actions）。Kaggle の GPU 週枠が戻ればそちらで DeBERTa-base、戻らなければ Kaggle の TPU（別枠・PyTorch/XLA）で回す。
    - 入力は「論文の冒頭 ＋ 文」の組（文脈つきで選ぶ）。
 2. 予算は 190 語のまま。LightGBM の特徴の足し引き・seed の平均などの小手先はしない（CV の揺れ ±0.0007 より小さい）。
 3. 公開 artifact に論文の文を置かない（`DRIVENDATA_MEMO.md`）。abs2 の run（39712899767）の artifact は終わったら `requests/cleanup-artifacts.json` で消す。
