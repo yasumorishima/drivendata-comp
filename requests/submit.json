@@ -1,3 +1,3 @@
-{"memo": "v4 LLM 要旨との一致（2 語並び・単語・順位）を LightGBM の特徴に学ばせる（CPU 4bit 7B のゼロショット要旨）: CV 0.1805（v2 0.1744、5 fold 全部で上）",
- "comp": "/competitions/297/whats-up-docs/", "data": "whats-up-docs kout-llm-cpu-v1",
- "script": "whats-up-docs/v4.py"}
+{"memo": "v5 = v4 + LLM（CPU 4bit 7B）が上位 30 文から選んだ文（選ばれたか・何番目か）を特徴に: CV 0.1816（v4 0.1805、5 fold 全部で上・選びは 9 割の論文で計測）",
+ "comp": "/competitions/297/whats-up-docs/", "data": "whats-up-docs kout-llm-cpu-v1 kout-llm-sel-v1",
+ "script": "whats-up-docs/v5.py"}
