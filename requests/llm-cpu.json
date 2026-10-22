@@ -1,3 +1,3 @@
-{"memo": "llm-sel-v1: Qwen2.5-7B（4bit）に v4 の上位 30 文から要旨に入る 6〜10 文を番号で選ばせる（2 位の方式を無料 LLM で）。v5 の特徴用に全 1,345 本",
- "script": "whats-up-docs/llm/cpu_select.py", "out_name": "llm-sel-v1",
+{"memo": "llm-abs2-v1: 2 本目の要旨（v4 上位 30 文を渡し「文の言い回しを写して組み立てる」促し）。v6 の特徴用に全 1,345 本",
+ "script": "whats-up-docs/llm/cpu_abstract2.py", "out_name": "llm-abs2-v1",
  "prep": "whats-up-docs/llm/select_prep.py", "prep_data": "whats-up-docs kout-llm-cpu-v1"}
