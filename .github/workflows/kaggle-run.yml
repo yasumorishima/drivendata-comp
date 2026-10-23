@@ -8,6 +8,7 @@ name: Kaggle Run
 #   {"memo": "...", "data": "whats-up-docs", "prep": "whats-up-docs/extractive.py material",
 #    "dataset": "yasunorim/dd-whats-up-docs-input", "kernel_dir": "whats-up-docs/llm", "out_name": "llm-v1"}
 #   "collect_only": true で push せず、今動いている（か最後の）実行の完了を待って出力を集める。
+#   "data": "whats-up-docs kout-llm-cpu-v1" のように複数を空白区切りで渡せる（prep には先頭の folder）。
 #   "reuse_dataset": true で入力 dataset を作り直さずに今の版を使う（prep の 40 分を省く）。
 #   prep は `python <prep> <data_dir> <dataset_dir>` で dataset に入れるファイルを書く。
 # GPU は Kaggle の週 30 時間枠（Kaggle・SIGNATE と共通）を使う。
@@ -67,9 +68,10 @@ jobs:
         if: env.REUSE != 'true'
         run: |
           set -euo pipefail
-          DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh "$REQ_DATA"
+          # "data" may name several data-cache entries; prep gets the first one's folder (the rest sit beside it)
+          DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh $REQ_DATA
           ds="$RUNNER_TEMP/ds"; mkdir -p "$ds"
-          python $REQ_PREP "$RUNNER_TEMP/env/data/$REQ_DATA" "$ds"
+          python $REQ_PREP "$RUNNER_TEMP/env/data/${REQ_DATA%% *}" "$ds"
           python - "$ds" <<'PY'
           import json, os, sys
           slug = os.environ["REQ_DATASET"]

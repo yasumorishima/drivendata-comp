@@ -1,0 +1,15 @@
+{
+  "id": "yasunorim/dd-whats-up-docs-tf",
+  "title": "dd whats up docs tf",
+  "code_file": "train.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "false",
+  "enable_tpu": "true",
+  "enable_internet": "true",
+  "dataset_sources": ["yasunorim/dd-whats-up-docs-tf-input"],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}
