@@ -118,13 +118,14 @@ def main():
         va = tr.fold == f
         tr.loc[va, "tf"] = predict(m, tok, tr[va], dev, xm)
         te_pred += predict(m, tok, te, dev, xm) / 5
+        te["tf"] = te_pred
+        # write before the diagnostics so a failure there cannot lose the run
+        pd.concat([tr[tr.fold.isin(FOLDS) & tr.tf.notna()], te])[["paper_id", "split", "pos", "tf"]].to_csv(
+            os.path.join(OUT, "preds.csv"), index=False)
         v = tr[va]
-        corr = v.groupby("paper_id").apply(lambda g: g.tf.corr(g.y, method="spearman")).mean()
-        corr4 = v.groupby("paper_id").apply(lambda g: g.v4.corr(g.y, method="spearman")).mean()
+        corr, corr4 = (v.groupby("paper_id")[[c, "y"]].rank().assign(p=v.paper_id).groupby("p")
+                       .apply(lambda g, c=c: g[c].corr(g.y)).mean() for c in ("tf", "v4"))
         log(f"fold {f}: within-paper spearman tf {corr:.4f} vs v4 {corr4:.4f}  ({time.time() - t0:.0f}s)")
-    te["tf"] = te_pred
-    tr = tr[tr.fold.isin(FOLDS)]
-    pd.concat([tr, te])[["paper_id", "split", "pos", "tf"]].to_csv(os.path.join(OUT, "preds.csv"), index=False)
     log("done")
 
 
