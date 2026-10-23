@@ -1,2 +1,2 @@
-{"memo": "tf-cpu-v1: Kaggle TPU が 1 時間以上空き待ちのため、同じ cross-encoder 微調整を Actions CPU で fold ごとに（長さ 160・1 epoch）",
+{"memo": "tf-cpu-v1（再）: 長い文で切り詰めが落ちたのを直した。Kaggle TPU が 1 時間以上空き待ちのため、同じ cross-encoder 微調整を Actions CPU で fold ごとに（長さ 160・1 epoch）",
  "out_name": "tf-cpu-v1", "data": "whats-up-docs kout-llm-cpu-v1", "maxlen": 160, "epochs": 1}

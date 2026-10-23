@@ -18,7 +18,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: tf-cpu
+  group: tf-cpu-${{ github.sha }}   # 前の run を止められない（cloud から cancel は 403）ので、待たずに走らせる
   cancel-in-progress: false
 
 jobs:

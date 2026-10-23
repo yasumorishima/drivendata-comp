@@ -59,7 +59,7 @@ def batches(tok, df, shuffle, rng):
             if shuffle:
                 continue
             b = np.concatenate([b, np.repeat(b[-1:], BS - n)])
-        x = tok(df.opening.values[b].tolist(), df.sent.values[b].tolist(), truncation="only_first",
+        x = tok(df.opening.values[b].tolist(), df.sent.values[b].tolist(), truncation="longest_first",
                 max_length=MAX_LEN, padding="max_length", return_tensors="pt")
         yield x, torch.tensor(df.y.values[b], dtype=torch.float32), n
 
