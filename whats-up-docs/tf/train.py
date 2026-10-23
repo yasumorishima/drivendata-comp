@@ -23,8 +23,12 @@ import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 MODEL = os.environ.get("TF_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-MAX_LEN, BS, EPOCHS, LR = 224, 32, 2, 3e-5
-OUT = "/kaggle/working" if os.path.isdir("/kaggle/working") else "."
+MAX_LEN = int(os.environ.get("TF_MAXLEN", 224))
+EPOCHS = int(os.environ.get("TF_EPOCHS", 2))
+BS, LR = 32, 3e-5
+# TF_FOLDS="2" runs only that fold (Actions CPU: one fold per runner); its test scores are already divided by 5
+FOLDS = [int(x) for x in os.environ.get("TF_FOLDS", "0 1 2 3 4").split()]
+OUT = os.environ.get("TF_OUT") or ("/kaggle/working" if os.path.isdir("/kaggle/working") else ".")
 LOG = open(os.path.join(OUT, "val_scores.txt"), "w")
 
 
@@ -79,13 +83,13 @@ def main():
         tr = tr[tr.paper_id.isin(keep)].reset_index(drop=True)
         te = te[te.paper_id.isin(te.paper_id.drop_duplicates()[:2])].reset_index(drop=True)
     dev, xm = device()
-    log("device", dev, "model", MODEL, "train rows", len(tr), "test rows", len(te), "cpus", os.cpu_count())
+    log("device", dev, "model", MODEL, "max_len", MAX_LEN, "epochs", EPOCHS, "folds", FOLDS, "train rows", len(tr), "test rows", len(te), "cpus", os.cpu_count())
     if xm is None and dev.type == "cpu":
         torch.set_num_threads(os.cpu_count())
     tok = AutoTokenizer.from_pretrained(MODEL)
     tr["tf"] = np.nan
     te_pred = np.zeros(len(te))
-    for f in range(5):
+    for f in FOLDS:
         t0 = time.time()
         torch.manual_seed(f)
         m = AutoModelForSequenceClassification.from_pretrained(MODEL, num_labels=1).to(dev)
@@ -119,6 +123,7 @@ def main():
         corr4 = v.groupby("paper_id").apply(lambda g: g.v4.corr(g.y, method="spearman")).mean()
         log(f"fold {f}: within-paper spearman tf {corr:.4f} vs v4 {corr4:.4f}  ({time.time() - t0:.0f}s)")
     te["tf"] = te_pred
+    tr = tr[tr.fold.isin(FOLDS)]
     pd.concat([tr, te])[["paper_id", "split", "pos", "tf"]].to_csv(os.path.join(OUT, "preds.csv"), index=False)
     log("done")
 

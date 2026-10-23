@@ -1,0 +1,119 @@
+name: TF on CPU
+
+# Kaggle の GPU/TPU が使えない（枠切れ・TPU の空き待ちが長い）とき用：whats-up-docs/tf/train.py を
+# Actions の CPU ランナーで fold ごとに 1 本ずつ（5 本並列）回す。
+# 起動: requests/tf-cpu.json を push。
+#   {"memo": "...", "out_name": "tf-cpu-v1", "data": "whats-up-docs kout-llm-cpu-v1",
+#    "maxlen": 160, "epochs": 1}
+# prep job が data-cache から候補（tf/prep.py）を作り、論文の文を含むので非公開の data-cache kin-<out_name> に置く。
+# 出力: data-cache の kout-<out_name>__preds.csv（paper_id, split, pos, tf）。成果物（点数だけ）は merge が消す。
+
+on:
+  push:
+    paths:
+      - 'requests/tf-cpu.json'
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: tf-cpu
+  cancel-in-progress: false
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build candidates from data-cache
+        run: |
+          set -euo pipefail
+          pip install --quiet -r whats-up-docs/requirements.txt
+          data=$(jq -r .data requests/tf-cpu.json)
+          DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh $data
+          mkdir -p in
+          python whats-up-docs/tf/prep.py "$RUNNER_TEMP/env/data/${data%% *}" in/cands.csv
+          DD_REPO="${{ github.repository }}" bash tools/local_push.sh "kin-$(jq -r .out_name requests/tf-cpu.json)" in
+
+  train:
+    needs: prep
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        fold: [0, 1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu && pip install --quiet transformers pandas numpy
+      - name: Train one fold
+        run: |
+          set -euo pipefail
+          n="kin-$(jq -r .out_name requests/tf-cpu.json)"
+          DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh "$n"
+          mkdir -p out
+          TF_FOLDS=${{ matrix.fold }} TF_OUT=out TF_MAXLEN=$(jq -r '.maxlen // 160' requests/tf-cpu.json) \
+            TF_EPOCHS=$(jq -r '.epochs // 1' requests/tf-cpu.json) \
+            python whats-up-docs/tf/train.py "$RUNNER_TEMP/env/data/$n/cands.csv"
+          mv out/preds.csv "out/fold-${{ matrix.fold }}.csv"; mv out/val_scores.txt "out/val-${{ matrix.fold }}.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fold-${{ matrix.fold }}
+          path: out/
+          retention-days: 3
+
+  merge:
+    needs: train
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --quiet pandas
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: fold-*
+          path: folds
+      - name: Merge and hand over
+        run: |
+          set -euo pipefail
+          name=$(jq -r .out_name requests/tf-cpu.json)
+          mkdir -p kout
+          cat folds/*/val-*.txt > kout/val_scores.txt || true
+          python - <<'PY'
+          import glob, pandas as pd
+          d = pd.concat([pd.read_csv(f) for f in sorted(glob.glob("folds/*/fold-*.csv"))], ignore_index=True)
+          n = len(glob.glob("folds/*/fold-*.csv"))
+          tr = d[d.split == "train"]
+          te = d[d.split == "test"].groupby(["paper_id", "split", "pos"], as_index=False).tf.sum()
+          te["tf"] = te.tf * 5 / n   # each fold wrote its test scores divided by 5
+          pd.concat([tr, te]).to_csv("kout/preds.csv", index=False)
+          open("kout/val_scores.txt", "a").write(f"folds merged {n}, train rows {len(tr)}, test rows {len(te)}\n")
+          PY
+          cat kout/val_scores.txt
+          DD_REPO="${{ github.repository }}" bash tools/local_push.sh "kout-$name" kout
+          f=whats-up-docs/results/kernel-$name.md
+          { echo "# $name ($(date -u +%Y-%m-%dT%H:%MZ), commit ${GITHUB_SHA::7}, TF on CPU)"; echo;
+            echo "memo: $(jq -r .memo requests/tf-cpu.json)"; echo; echo '```'; cat kout/val_scores.txt; echo '```'; } > "$f"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$f" && git commit -m "tf on cpu: $name" && (git push || (git pull --rebase && git push))
+          for a in $(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=100" --jq '.artifacts[].id'); do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$a"; done
