@@ -11,6 +11,7 @@
 | DrivenData Train & Validate | CSV提出型コンペの学習→提出ファイル作成 | competition_dir, memo |
 | DrivenData GPU Train (Kaggle) | GPU学習：Kaggle P100で学習→Release | competition_dir, model_release_tag, memo, ... |
 | Package DrivenData Submission | コード提出型：モデル+main.py→submission ZIP | competition_dir, model_release_tag, memo |
+| TF on CPU | Kaggle の GPU/TPU が使えないとき：`whats-up-docs/tf/train.py` を CPU ランナー 5 本（fold ごと）で | `requests/tf-cpu.json` を push |
 
 ## CSV提出型（tabular）ワークフロー
 
@@ -162,3 +163,15 @@ Artifactから `submission.zip` をダウンロード → DrivenDataコンペペ
 - GitHub にログインした誰でも公開 repo の artifact を DL できる。**配布データ由来のもの（論文の文・音声）を artifact に置かない。**
 - `LLM on CPU` の入力（prep が作る論文の上位文）は data-cache の `kin-<out_name>` に置く。merge は自分の shard の artifact を消す。
 - 消し忘れは `requests/cleanup-artifacts.json`（`{"memo", "run_ids": [...]}`）→ `Cleanup Artifacts`。cloud からの DELETE は 403。
+
+## Kaggle の TPU と、cloud からの Kaggle 操作（2026-10-23）
+
+- TPU は `kernel-metadata.json` の `"enable_tpu": "true"`（`enable_gpu` は false）で v5e-8 が割り当てられる。
+  - **空き待ち（queued）が 1 時間以上続くことがある。** 同時に 1 本（"Maximum batch TPU session count of 1"）なので、待っている版を新しい版で置き換えられない。
+  - 待たされたら `TF on CPU`（Actions の CPU）を並べて回す。
+- cloud から Kaggle の CLI/SDK を直接使える：kagglesdk の接続先を `https://www.kaggle.com/api` に差し替える（認証は proxy が付けるので、鍵は仮の値でよい）。
+  ```python
+  import kagglesdk.kaggle_env as e; e._env_to_endpoint[e.KaggleEnv.PROD] = "https://www.kaggle.com/api"
+  # KAGGLE_USERNAME=yasunorim KAGGLE_KEY=dummy で KaggleApi().authenticate() → kernels_status / kernels_push など
+  ```
+- tokenizer の `truncation="only_first"` は、2 つ目（文）だけで長さを超えると例外で落ちる。`longest_first` を使う。
