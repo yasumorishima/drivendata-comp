@@ -8,7 +8,7 @@ other chosen sentences already cover. Here the summary is built by budgeted gree
 and each step adds the candidate with the best gain / words**r, among the top N by score, until 190 words.
 
   python whats-up-docs/v9.py cv     <data_dir>              # 5-fold CV: v5 compose vs set selection
-  python whats-up-docs/v9.py submit <data_dir> <out.csv>    # env V9_LAM, V9_R, V9_N
+  python whats-up-docs/v9.py submit <data_dir> <out.csv>    # env V9_LAM, V9_R, V9_N (default 0, 1, 40)
 """
 
 import os
@@ -92,7 +92,8 @@ def main():
                 per_fold[f].append(v)
             print(f"{name:28s} {np.mean(sc):.4f}  folds " + " ".join(f"{np.mean(p):.4f}" for p in per_fold), flush=True)
     else:
-        lam, r, n = float(os.environ["V9_LAM"]), float(os.environ["V9_R"]), int(os.environ["V9_N"])
+        # default = the CV winner (10-24): no LLM-coverage term, gain per word, top 40 candidates
+        lam, r, n = (float(os.environ.get("V9_LAM", 0)), float(os.environ.get("V9_R", 1)), int(os.environ.get("V9_N", 40)))
         tr, llm, texts, tab = tables(d)
         te = pd.read_csv(d + "test_features.csv")
         tt = add_sel(add_llm(table(te.text.tolist()), [llm.get(p, "") for p in te.paper_id]), load_picks(d, te.paper_id))
