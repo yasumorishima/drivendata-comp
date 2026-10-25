@@ -7,7 +7,7 @@ per word) then chooses among sentences and clauses until 190 words. Chosen piece
 order. The pair model is v10's, unchanged (pairs that cross a split point are simply not counted).
 
   python whats-up-docs/v11.py cv     <data_dir>    # 5-fold CV: v9 / v10 / v11 (same folds, same scores)
-  python whats-up-docs/v11.py submit <data_dir> <out.csv>
+  python whats-up-docs/v11.py submit <data_dir> <out.csv>   # env V11_W (default 0.7: 0.7 pair model + 0.3 v9 value)
 """
 
 import os
@@ -25,6 +25,7 @@ from v9 import oof, select  # noqa: E402
 from v10 import FEATS, N_TOP, choose, fit_pairs, pairs, paper_rows, target_encode, with_te  # noqa: E402
 
 MIN_W = int(os.environ.get("V11_MIN_W", 4))
+W = float(os.environ.get("V11_W", 0.7))   # CV 10-25: w=0.7 0.1910 > w=1 0.1898 > .5 0.1894 > .3 0.1878 > 0 0.1831
 
 
 def units(sents):
@@ -107,10 +108,10 @@ def main():
             s = sm.predict(df[feat_cols(df)])
             r, sents, _ = paper_rows(df, s, llm.get(te.paper_id[i], ""), " ".join(str(te.text[i]).split()[:300]))
             target_encode(allrows, [r])
-            summ[i] = choose_units(r, sents, m.predict_proba(r[FEATS])[:, 1])
+            summ[i] = choose_units(r, sents, mix(r, m.predict_proba(r[FEATS])[:, 1], W))
         summ = [x if x.strip() else " ".join(str(t).split()[:BUDGET]) for x, t in zip(summ, te.text)]
         pd.DataFrame({"paper_id": te.paper_id, "summary": summ}).to_csv(sys.argv[3], index=False)
-        print("wrote", sys.argv[3], len(te))
+        print("wrote", sys.argv[3], len(te), f"w={W}")
 
 
 if __name__ == "__main__":
