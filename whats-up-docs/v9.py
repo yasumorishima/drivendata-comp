@@ -73,6 +73,7 @@ def oof(d):
             res[i] = (df[["sent", "words"]], m.predict(df[feat_cols(df)]), f)
         print("oof fold", f, flush=True)
     out = (list(tr.summary), texts, res)
+    os.makedirs(os.path.dirname(cache), exist_ok=True)
     pickle.dump(out, open(cache, "wb"))
     return out
 
