@@ -175,3 +175,4 @@ Artifactから `submission.zip` をダウンロード → DrivenDataコンペペ
   # KAGGLE_USERNAME=yasunorim KAGGLE_KEY=dummy で KaggleApi().authenticate() → kernels_status / kernels_push など
   ```
 - tokenizer の `truncation="only_first"` は、2 つ目（文）だけで長さを超えると例外で落ちる。`longest_first` を使う。
+- 2026-10-25：提出スクリプトが `~/drivendata-env/data/` に cache を書くと runner ではフォルダが無く落ちる（v11 の 1 回目）。書く前に `os.makedirs`。予測で落ちたときは DrivenData に出ていないので枠は減らない。
