@@ -40,6 +40,11 @@ def units(sents):
     return out
 
 
+def mix(r, prob, w):
+    """w * P(pair) from the pair model + (1 - w) * best v5 sentence score holding the pair (v9's value)."""
+    return w * prob + (1 - w) * np.clip(r.s_max.to_numpy(), 0, None)
+
+
 def choose_units(r, sents, prob, budget=BUDGET):
     p = dict(zip(r.pair, prob))
     u = units(sents)
@@ -66,7 +71,7 @@ def main():
     openings = [" ".join(str(t).split()[:300]) for t in tr.text]
     built = {i: paper_rows(df, s, texts[i], openings[i], refs[i]) for i, (df, s, f) in res.items()}
     if mode == "cv":
-        sc = {"v9": [], "v10": [], "v11": []}
+        sc = {"v9": [], "v10": [], "v11": [], "v11 w=0": [], "v11 w=.3": [], "v11 w=.5": [], "v11 w=.7": []}
         fold_of = []
         for f in range(5):
             tr_ids = [i for i, x in res.items() if x[2] != f]
@@ -80,6 +85,8 @@ def main():
                 sc["v9"].append(rouge2(refs[i], select(df, s, texts[i], 0.0, 1.0, N_TOP)))
                 sc["v10"].append(rouge2(refs[i], choose(r, built[i][1], built[i][2], prob)))
                 sc["v11"].append(rouge2(refs[i], choose_units(r, built[i][1], prob)))
+                for w in (0.0, 0.3, 0.5, 0.7):
+                    sc[f"v11 w={w:g}".replace("0.", ".")].append(rouge2(refs[i], choose_units(r, built[i][1], mix(r, prob, w))))
                 fold_of.append(f)
             fo = np.array(fold_of)
             print(f"fold {f} " + " ".join(f"{k} {np.mean(np.array(v)[fo == f]):.4f}" for k, v in sc.items()), flush=True)
