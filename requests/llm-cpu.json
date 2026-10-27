@@ -1,3 +1,3 @@
-{"memo": "llm-abs2-v1: 2 本目の要旨（v4 上位 30 文を渡し「文の言い回しを写して組み立てる」促し）。v6 の特徴用に全 1,345 本",
- "script": "whats-up-docs/llm/cpu_abstract2.py", "out_name": "llm-abs2-v1",
- "prep": "whats-up-docs/llm/select_prep.py", "prep_data": "whats-up-docs kout-llm-cpu-v1"}
+{"memo": "llm-abs3-v1: 3 本目の要旨（冒頭 150 語＋結論・考察の節 650 語から書かせる。1・2 本目と違う場所を読む）。全 1,345 本",
+ "script": "whats-up-docs/llm/cpu_abstract3.py", "out_name": "llm-abs3-v1",
+ "prep": "whats-up-docs/llm/abs3_prep.py", "prep_data": "whats-up-docs"}
