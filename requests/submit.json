@@ -1,3 +1,3 @@
-{"memo": "v18 = v14 ＋ 2 本目の LLM 要旨（v17）＋ 位置の手がかり（v15）、2 語モデルは種を変えた 3 本の平均: CV 0.1957（同じ run の v14 3 本平均 0.1942、3 勝 2 敗）",
- "comp": "/competitions/297/whats-up-docs/", "data": "whats-up-docs kout-llm-cpu-v1 kout-llm-sel-v1 kout-llm-abs2-v1",
- "script": "whats-up-docs/v18.py"}
+{"memo": "v20 = v18 ＋ 3 本目の LLM 要旨（冒頭＋結論の節から書かせる・kout-llm-abs3-v1）を 2 語モデルに（入っているか・回数・3 語一致・3 本の要旨のうち何本に入るか）: CV 0.1970（同じ run の v18 0.1957、3 勝 2 分け）",
+ "comp": "/competitions/297/whats-up-docs/", "data": "whats-up-docs kout-llm-cpu-v1 kout-llm-sel-v1 kout-llm-abs2-v1 kout-llm-abs3-v1",
+ "script": "whats-up-docs/v20.py"}
