@@ -1,3 +1,3 @@
-{"memo": "llm-abs5-v1: 5 本目の要旨（冒頭 150 語＋データ・方法の節と結果の節の頭 各 325 語から書かせる）。全 1,345 本",
- "script": "whats-up-docs/llm/cpu_abstract5.py", "out_name": "llm-abs5-v1",
+{"memo": "llm-abs5-v1 の欠け 67 本を埋める（shard 10 が runner の停止で落ちた）。前回分は skip_from で引き継ぐ",
+ "script": "whats-up-docs/llm/cpu_abstract5.py", "out_name": "llm-abs5-v1", "skip_from": "kout-llm-abs5-v1",
  "prep": "whats-up-docs/llm/abs5_prep.py", "prep_data": "whats-up-docs"}
