@@ -1,3 +1,3 @@
-{"memo": "llm-abs4-v1: 4 本目の要旨（冒頭 150 語＋本文中の「this paper / we find」など貢献を述べる文 650 語から書かせる）。全 1,345 本",
- "script": "whats-up-docs/llm/cpu_abstract4.py", "out_name": "llm-abs4-v1",
- "prep": "whats-up-docs/llm/abs4_prep.py", "prep_data": "whats-up-docs"}
+{"memo": "llm-abs5-v1: 5 本目の要旨（冒頭 150 語＋データ・方法の節と結果の節の頭 各 325 語から書かせる）。全 1,345 本",
+ "script": "whats-up-docs/llm/cpu_abstract5.py", "out_name": "llm-abs5-v1",
+ "prep": "whats-up-docs/llm/abs5_prep.py", "prep_data": "whats-up-docs"}
