@@ -1,3 +1,3 @@
-{"memo": "llm-abs5-v1 の欠け 67 本を埋める（shard 10 が runner の停止で落ちた）。前回分は skip_from で引き継ぐ",
- "script": "whats-up-docs/llm/cpu_abstract5.py", "out_name": "llm-abs5-v1", "skip_from": "kout-llm-abs5-v1",
- "prep": "whats-up-docs/llm/abs5_prep.py", "prep_data": "whats-up-docs"}
+{"memo": "6 本目の要旨：別系統のモデル（Mistral-7B-Instruct-v0.3、Apache-2.0）に 4 本目と同じ入力（冒頭＋貢献を述べる文）で書かせる。Qwen 5 本の多数決が飽和したので、間違え方の違うモデルが票に効くかを見る",
+ "script": "whats-up-docs/llm/cpu_abstract6.py", "out_name": "llm-abs6-v1",
+ "prep": "whats-up-docs/llm/abs4_prep.py", "prep_data": "whats-up-docs"}
