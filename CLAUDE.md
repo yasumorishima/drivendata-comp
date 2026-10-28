@@ -81,7 +81,7 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 - `pasketti-*/`（On Top of Pasketti、2026-04-06 締切）は過去の作業の跡。仕組み（GPU 学習・提出 zip・自動提出）を流用するときだけ参照する。
 - PC のメモも、開催中のコンペと流用できる仕組みに関係するものだけ集めればよい。
 
-## 現在地（2026-10-27）
+## 現在地（2026-10-28）
 
 - cloud 対応は 10-19〜21 に完了（`Cloud Dispatch`・`Data Cache`・`Fetch Pages`・`Join`・`Submit Prediction`・`Kaggle Run`・`LLM on CPU`）。
   - 10-22 追加：`LLM on CPU` に prep job（入力を data-cache から作り、非公開の `kin-<name>` に置く）、`Cleanup Artifacts`。
@@ -96,6 +96,7 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
   - 10-25：**2 語の確率（v10）に文の点を 3 割混ぜ、文を , ; : で切った節からも選ぶと LB +0.0019（v11）。** 候補を全文に広げる・論文単位の特徴（v12）・もっと細かく切る（v13）は効かず。
   - 10-26：**2 語の確率モデルに「本文のどこに出るか」（最初の位置・序論／結論の節）を足すと LB +0.0025（v14）。** 2 本目の LLM 要旨・位置の追加・3 本平均で +0.0009（v18）。3 語一致・語ごとの率（v16）・予算は効かず。
   - 10-27：**読む場所を変えた LLM 要旨を増やし（結論の節・貢献を述べる文）、2 語の並びが何本の要旨に入るか（多数決）を 2 語モデルに足すと LB +0.0013・+0.0010（v20・v21）。** 要旨単体は 1 本目より著者の要旨から遠いのに効く。LLM が選んだ文・2 本の要旨の一致度（v19）は揺れの内、5 本目（v22）は同点。
+  - 10-28：**出さず。** 多数決の中身を変える（v23）・LLM の文を要約に混ぜる（v24、悪化）・別系統モデル Mistral の要旨（v25）はどれも v21 と同点＝LLM 要旨の路線は飽和。
   - 2 位（0.2021）は公開解法あり（`notes/whats-up-docs/public-2nd-botabun.md`）。有料 LLM に文を選ばせる方式。
 - Kaggle の GPU 週枠（30 時間、Kaggle・SIGNATE と共通）は 10-21 に使い切った。
 - 🔴 **Kaggle の GPU が使えないとき（週枠切れなど）は TPU で回す**（2026-10-22 user 指示：「kaggle GPU使えないときは、TPUで。メモ」）。
@@ -103,19 +104,19 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
   - TPU では CUDA 前提のもの（bitsandbytes・llama.cpp の CUDA 版・vLLM）が動かない。PyTorch/XLA か JAX/Flax で書き直す。
   - 10-23 に初めて出したら TPU の空き待ちが 1 時間以上続いた。待つ間は `TF on CPU`（Actions の CPU、fold ごと 5 本）で回す。cloud から Kaggle SDK を直接使える（`DRIVENDATA_MEMO.md`）。
 - GEMS は参加資格が無く見送り（10-20 user 確認）。
-- 開催中コンペ（10-27 の Check Competitions）：8 件、新規なし。
+- 開催中コンペ（10-28 の Check Competitions）：8 件、新規なし。
 
   | 締切 | 分野 | 賞金 | 参加 | コンペ |
   |---|---|---|---|---|
-  | 2026-12-03 | energy | $300,000 | 746 | GEMS Prize（資格なし） |
-  | 2027-02-01 | health | - | 180 | SNOMED CT Entity Linking Benchmark |
+  | 2026-12-03 | energy | $300,000 | 771 | GEMS Prize（資格なし） |
+  | 2027-02-01 | health | - | 181 | SNOMED CT Entity Linking Benchmark |
   | 2028-04-03 | development | - | 652 | What's Up, Docs? Document Summarization with LLMs |
   | 2028-07-03 以降 | - | - | - | 練習コンペ 5 件（Flu Shot・Conser-vision・Richter's・DengAI・Pump it Up） |
 
 ## 次の一手
 
 1. **What's Up Docs（`whats-up-docs/CLAUDE.md` が正本）で毎日 3 本（UTC 0 時で回復）を 1 本ずつ出す。** 新しい部品が無い日は出さない。
-   - 次の部品：多数決の中身を変える（要旨ごとの当たりやすさで重み付けた票・3 語の票・文単位の票）。単純な本数の多数決は 4 本で飽和（5 本目の v22 は同点）。比べるときは 3 本平均（`Bag`）。
+   - 次の部品：LLM 要旨を増やす・票の形を変える路線は 10-28 で飽和（v22〜v25 すべて同点）。まず「正解の 2 語を知っていたら何点取れるか」の上限を測り、失点がモデル側か候補・選び方側かを切り分けてから次を決める（`whats-up-docs/CLAUDE.md`）。
    - 要旨 1 本の生成は `requests/llm-cpu.json`（prep 付き）で CPU 20 本・約 3 時間。生成中は Submit Prediction が待たされることがある。
    - 出し方：`requests/submit.json` を push → `Submit Prediction` が点数を `whats-up-docs/results/submissions.md` に追記。
    - 毎日 UTC 0:07（JST 9:07）に Routine `trig_01Rp6L6ZKtha2GgqYrrDVvtn` がこのセッションを起こす。
