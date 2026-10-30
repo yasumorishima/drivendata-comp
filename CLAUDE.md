@@ -115,6 +115,9 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 
 ## 次の一手
 
+- 🔴 **2026-10-30 から休止中**（user 指示：「いったん休憩、始めるとき、また連絡する」）。毎日の Routine `trig_01Rp6L6ZKtha2GgqYrrDVvtn` は無効にしてある。user から再開の連絡が来たら有効に戻してから下の手順に入る。
+
+
 1. **What's Up Docs（`whats-up-docs/CLAUDE.md` が正本）で毎日 3 本（UTC 0 時で回復）を 1 本ずつ出す。** 新しい部品が無い日は出さない。
    - 次の部品：LLM 要旨を増やす・票の形を変える路線は 10-28 で飽和（v22〜v25 すべて同点）。まず「正解の 2 語を知っていたら何点取れるか」の上限を測り、失点がモデル側か候補・選び方側かを切り分けてから次を決める（`whats-up-docs/CLAUDE.md`）。
    - 要旨 1 本の生成は `requests/llm-cpu.json`（prep 付き）で CPU 20 本・約 3 時間。生成中は Submit Prediction が待たされることがある。
