@@ -90,14 +90,16 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 - `pasketti-*/`（On Top of Pasketti、2026-04-06 締切）は過去の作業の跡。仕組み（GPU 学習・提出 zip・自動提出）を流用するときだけ参照する。
 - PC のメモも、開催中のコンペと流用できる仕組みに関係するものだけ集めればよい。
 
-## 現在地（2026-10-28）
+## 現在地（2026-11-14）
 
 - cloud 対応は 10-19〜21 に完了（`Cloud Dispatch`・`Data Cache`・`Fetch Pages`・`Join`・`Submit Prediction`・`Kaggle Run`・`LLM on CPU`）。
   - 10-22 追加：`LLM on CPU` に prep job（入力を data-cache から作り、非公開の `kin-<name>` に置く）、`Cleanup Artifacts`。
   - 🔴 **公開 repo の Actions artifact は誰でも落とせる**。論文の文を artifact に置かない（10-22 に一度置いてしまい、消す依頼を出した）。
 - PC からの受け渡しは 10-20 に完了（`notes/LOCAL_INVENTORY.md`）。
   - PC の `Desktop/Kaggle/DrivenData.txt` は Discord の webhook URL（Secret `DISCORD_WEBHOOK_URL`）。Discord 側で消さない。
-- **What's Up Docs：最高 LB 0.2010（3 位、v21）。2 位 0.2021 まで 0.0011。** 10-27 は v20（3 本目の LLM 要旨、0.2000）・v21（4 本目、0.2010）。10-26 は v14 0.1978・v18 0.1987。
+- **What's Up Docs：最高 LB 0.2014（3 位、v26）。2 位 0.2021 まで 0.0007。**
+  - 11-14（休止明け 1 日目）：v19 の部品を新しい比べ方（15 対）で測り直したら v21 の上で +0.0015・p 0.0001 → v26 として出して LB 0.2014（+0.0004）。
+    失点の切り分け（上限）：候補側とモデル側がほぼ半々。候補を 40→120 文に広げる v27 が seed 0 で 4 fold 全部上がった（途中で止めた）。 10-27 は v20（3 本目の LLM 要旨、0.2000）・v21（4 本目、0.2010）。10-26 は v14 0.1978・v18 0.1987。
   - 効いたのは「LLM（ゼロショット 7B）に要旨を書かせ、その要旨との一致で本文の文を選ぶ」。
   - 10-22 に試して効かなかったもの：LLM の文番号選び（v5）・2 本目の要旨（v6）・文埋め込み（v7）・14B。どれも CV ±0.001 以内。
   - 10-23：小さな cross-encoder を微調整して文ごとの点に（v8）→ CV +0.0003（揺れの内）。文ごとの点を足す路線は出し尽くした。
@@ -124,7 +126,8 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 
 ## 次の一手
 
-- 🔴 **2026-10-30 から休止中**（user 指示：「いったん休憩、始めるとき、また連絡する」）。毎日の Routine `trig_01Rp6L6ZKtha2GgqYrrDVvtn` は無効にしてある。user から再開の連絡が来たら有効に戻してから下の手順に入る。
+- 🔴 **2026-11-14 午後から月曜（11-16）午後まで休止**（user 指示：「また月曜午後まで休憩」）。毎日の Routine `trig_01Rp6L6ZKtha2GgqYrrDVvtn` は無効にしてある。再開したら有効に戻し、まず週 1 回の統計解析（月曜）をしてから `whats-up-docs/CLAUDE.md` の「次の一手 0」（v28）に入る。
+  - 10-30〜11-13 も休止していた（11-14 に再開）。
 
 
 1. **What's Up Docs（`whats-up-docs/CLAUDE.md` が正本）で毎日 3 本（UTC 0 時で回復）を 1 本ずつ出す。** 新しい部品が無い日は出さない。
