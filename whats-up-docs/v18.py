@@ -29,19 +29,20 @@ from v9 import oof  # noqa: E402
 from v11 import W, choose_units, mix  # noqa: E402
 
 BAG = int(os.environ.get("V18_BAG", 3))
+SEED = int(os.environ.get("V18_SEED", 0))  # offset of the bag seeds (for repeated CV)
 SETS = {"v14": v14.BASE + v14.EXTRA, "v17": v14.BASE + v14.EXTRA + v17.EXTRA,
         "all": v14.BASE + v14.EXTRA + v17.EXTRA + v15.EXTRA}
 
 
 class Bag:
-    def __init__(self, feats):
-        self.feats, self.ms = feats, []
+    def __init__(self, feats, seed=None):
+        self.feats, self.ms, self.seed = feats, [], SEED if seed is None else seed
 
     def fit(self, rows):
         d = pd.concat(rows)
         for s in range(BAG):
             m = lgb.LGBMClassifier(n_estimators=300, learning_rate=0.05, num_leaves=63, min_child_samples=50,
-                                   subsample=0.8, subsample_freq=1, colsample_bytree=0.8, random_state=s, verbose=-1)
+                                   subsample=0.8, subsample_freq=1, colsample_bytree=0.8, random_state=self.seed + s, verbose=-1)
             self.ms.append(m.fit(d[self.feats], d.y))
         return self
 
