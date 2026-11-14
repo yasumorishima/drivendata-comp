@@ -2,7 +2,9 @@
 gains from 80-120 candidate sentences instead of 40; here the base is v26 and the pool goes further.
 
   PYTHONHASHSEED=0 V28_N=40,120,200 python whats-up-docs/v28.py cv <data_dir>
-  V28_N=120 python whats-up-docs/v28.py submit <data_dir> <out.csv>     # first value of V28_N is used
+  python whats-up-docs/v28.py submit <data_dir> <out.csv>     # first value of V28_N (default 120)
+
+11-14, 15 pairs vs v26: n120 +0.0011 (11/15 wins, p 0.021).
 """
 
 import os
@@ -22,7 +24,7 @@ from v11 import W, choose_units, mix  # noqa: E402
 from v18 import Bag  # noqa: E402
 from v21 import ABS4, load3  # noqa: E402
 
-NS = [int(x) for x in os.environ.get("V28_N", "40,120,200").split(",")]
+NS = [int(x) for x in os.environ.get("V28_N", "120,200").split(",")]
 SEEDS = [int(x) for x in os.environ.get("V28_SEEDS", "0,10,20").split(",")]
 FEATS = v26.SETS["both"]
 
