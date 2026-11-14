@@ -99,7 +99,8 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
   - PC の `Desktop/Kaggle/DrivenData.txt` は Discord の webhook URL（Secret `DISCORD_WEBHOOK_URL`）。Discord 側で消さない。
 - **What's Up Docs：最高 LB 0.2014（3 位、v26）。2 位 0.2021 まで 0.0007。**
   - 11-14（休止明け 1 日目）：v19 の部品を新しい比べ方（15 対）で測り直したら v21 の上で +0.0015・p 0.0001 → v26 として出して LB 0.2014（+0.0004）。
-    失点の切り分け（上限）：候補側とモデル側がほぼ半々。候補を 40→120 文に広げる v27 が seed 0 で 4 fold 全部上がった（途中で止めた）。 10-27 は v20（3 本目の LLM 要旨、0.2000）・v21（4 本目、0.2010）。10-26 は v14 0.1978・v18 0.1987。
+    失点の切り分け（上限）：候補側とモデル側がほぼ半々。候補を 40→120 文に広げる v27 が seed 0 で 4 fold 全部上がった（途中で止めた）。
+  - 10-27 は v20（3 本目の LLM 要旨、0.2000）・v21（4 本目、0.2010）。10-26 は v14 0.1978・v18 0.1987。
   - 効いたのは「LLM（ゼロショット 7B）に要旨を書かせ、その要旨との一致で本文の文を選ぶ」。
   - 10-22 に試して効かなかったもの：LLM の文番号選び（v5）・2 本目の要旨（v6）・文埋め込み（v7）・14B。どれも CV ±0.001 以内。
   - 10-23：小さな cross-encoder を微調整して文ごとの点に（v8）→ CV +0.0003（揺れの内）。文ごとの点を足す路線は出し尽くした。
@@ -131,7 +132,7 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 
 
 1. **What's Up Docs（`whats-up-docs/CLAUDE.md` が正本）で毎日 3 本（UTC 0 時で回復）を 1 本ずつ出す。** 新しい部品が無い日は出さない。
-   - 次の部品：LLM 要旨を増やす・票の形を変える路線は 10-28 で飽和（v22〜v25 すべて同点）。まず「正解の 2 語を知っていたら何点取れるか」の上限を測り、失点がモデル側か候補・選び方側かを切り分けてから次を決める（`whats-up-docs/CLAUDE.md`）。
+   - 次の部品：候補を広げる（v28、11-14 の上限の測定で候補側の失点が 0.083 と分かった）。LLM 要旨を増やす路線は 10-28 で飽和。
    - 要旨 1 本の生成は `requests/llm-cpu.json`（prep 付き）で CPU 20 本・約 3 時間。生成中は Submit Prediction が待たされることがある。
    - 出し方：`requests/submit.json` を push → `Submit Prediction` が点数を `whats-up-docs/results/submissions.md` に追記。
    - 毎日 UTC 0:07（JST 9:07）に Routine `trig_01Rp6L6ZKtha2GgqYrrDVvtn` がこのセッションを起こす。
