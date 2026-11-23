@@ -18,14 +18,26 @@ print(f"[1] LB = {r.slope:.3f}*CV + {r.intercept:.4f}  r={r.rvalue:.4f}  残差 
 print(f"    LB-CV の差 平均 {np.mean(y-cv):+.4f} sd {np.std(y-cv, ddof=1):.4f}／伸びの合計 LB/CV = {np.diff(y).sum()/np.diff(cv).sum():.2f}")
 
 ex = rows("experiments.csv")
-print("\n[2] 実験  平均差   sd     t     p(片側)  出した  LB の伸び")
-nulls = []
+pred = r.slope * cv + r.intercept
+print("    版   CV      LB      予想    外れ")
+for row, p in zip(lb, pred):
+    print(f"    {row['ver']:<4} {float(row['cv']):.4f} {float(row['lb']):.4f} {p:.4f} {float(row['lb'])-p:+.4f}")
+
+print("\n[2] 実験  平均差   90% 区間            sd     t     p(片側)  Holm   出した  LB の伸び")
+nulls, out = [], []
 for e in ex:
     d = np.array([float(e[f"f{i}"]) for i in range(5)])
     t = stats.ttest_1samp(d, 0, alternative="greater")
-    print(f"    {e['exp']:<5} {d.mean():+.4f} {d.std(ddof=1):.4f} {t.statistic:5.2f}  {t.pvalue:.3f}   {e['shipped']}     {e['lb_gain']}")
+    h = stats.t.ppf(.95, len(d) - 1) * d.std(ddof=1) / np.sqrt(len(d))
+    out.append((e, d, t, h))
     if t.pvalue > 0.1 and e["shipped"] == "0":
         nulls.append(d - d.mean())
+ps = np.array([o[2].pvalue for o in out]); order = np.argsort(ps); holm = np.empty_like(ps); run = 0
+for k, j in enumerate(order):
+    run = max(run, min(1, (len(ps) - k) * ps[j])); holm[j] = run
+for (e, d, t, h), hp in zip(out, holm):
+    ci = f"[{d.mean()-h:+.4f}, {d.mean()+h:+.4f}]"
+    print(f"    {e['exp']:<5} {d.mean():+.4f} {ci:<20} {d.std(ddof=1):.4f} {t.statistic:5.2f}  {t.pvalue:.3f}   {hp:.3f}  {e['shipped']}     {e['lb_gain']}")
 pool = np.concatenate(nulls); s = np.sqrt((pool**2).sum() / (len(pool) - len(nulls)))
 print(f"\n[3] 差のない実験 {len(nulls)} 本から：fold あたりの揺れ sd={s:.4f}（5 fold 平均の sd={s/np.sqrt(5):.4f}）")
 for n in (5, 10, 15):
