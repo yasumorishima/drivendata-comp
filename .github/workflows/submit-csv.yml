@@ -8,6 +8,8 @@ name: Submit Prediction
 #    "script": "whats-up-docs/extractive.py"}
 #   data は空白区切りで複数可（例 "whats-up-docs kout-llm-v1"）。<data_dir> は先頭のもの、他は隣のフォルダに入る。
 #   script は `python <script> submit <data_dir> <out.csv>` で予測を書くこと。
+#   K-12 AI Infrastructure Platform のコンペは "base_url": "https://platform.k12-ai-infrastructure.org" を足す
+#   （同じ Secrets でログイン、ログに URL を出さない）。
 #   requirements は <script と同じフォルダ>/requirements.txt があれば入れる。
 # 結果: <comp フォルダ>/results/submissions.md に 1 行追記して push、画面は data-cache の submit-<slug>__*。
 # 🔴 提出は 1 日の上限を使う。1 本ずつ、前の結果を見てから次を出す（CLAUDE.md）。
@@ -45,6 +47,8 @@ jobs:
             [ -n "$v" ] || { echo "::error::requests/submit.json needs $k"; exit 1; }
             { echo "REQ_${k^^}<<EOF"; echo "$v"; echo "EOF"; } >> "$GITHUB_ENV"
           done
+          echo "DD_BASE_URL=$(jq -r '.base_url // "https://www.drivendata.org"' requests/submit.json)" >> "$GITHUB_ENV"
+          echo "DD_QUIET=$(jq -r 'if .base_url then 1 else 0 end' requests/submit.json)" >> "$GITHUB_ENV"
           echo "SLUG=$(basename "$(jq -r .comp requests/submit.json)")" >> "$GITHUB_ENV"
 
       - name: Install
@@ -57,9 +61,10 @@ jobs:
       - name: Make prediction
         run: |
           set -euo pipefail
-          DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh $REQ_DATA
+          DD_REPO="${{ github.repository }}" DD_ENV="$RUNNER_TEMP/env" bash tools/cloud_setup.sh $REQ_DATA > "$RUNNER_TEMP/setup.log" 2>&1 || { [ "$DD_QUIET" = 1 ] || cat "$RUNNER_TEMP/setup.log"; exit 1; }
+          [ "$DD_QUIET" = 1 ] || cat "$RUNNER_TEMP/setup.log"
           python "$REQ_SCRIPT" submit "$RUNNER_TEMP/env/data/${REQ_DATA%% *}" "$RUNNER_TEMP/submission.csv"
-          ls -la "$RUNNER_TEMP/submission.csv"
+          echo "submission: $(wc -l < "$RUNNER_TEMP/submission.csv") lines, $(wc -c < "$RUNNER_TEMP/submission.csv") bytes"
 
       - name: Submit
         id: sub
@@ -76,7 +81,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          DD_REPO="${{ github.repository }}" bash tools/local_push.sh "submit-$SLUG" out || true
+          DD_REPO="${{ github.repository }}" bash tools/local_push.sh "submit-$SLUG" out > /dev/null || true
           dir="$(dirname "$REQ_SCRIPT")/results"; mkdir -p "$dir"
           f="$dir/submissions.md"
           [ -f "$f" ] || printf '# 提出の記録（Submit Prediction が追記）\n\n| 日時 (UTC) | commit | script | 結果 | memo |\n|---|---|---|---|---|\n' > "$f"

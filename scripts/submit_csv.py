@@ -16,13 +16,15 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-BASE = "https://www.drivendata.org"
+BASE = os.environ.get("DD_BASE_URL", "https://www.drivendata.org").rstrip("/")
+# DD_QUIET=1: no URLs in the (public) Actions log; screenshots/texts still go to <out_dir> (draft release only).
+QUIET = os.environ.get("DD_QUIET") == "1"
 
 
 def snap(page, out, name):
     page.screenshot(path=str(out / f"{name}.png"), full_page=True)
     (out / f"{name}.txt").write_text(f"URL: {page.url}\n\n{page.inner_text('body')}", encoding="utf-8")
-    print(f"[{name}] {page.url}")
+    print(f"[{name}]" if QUIET else f"[{name}] {page.url}")
 
 
 def main():
