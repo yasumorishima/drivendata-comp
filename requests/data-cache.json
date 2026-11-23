@@ -1,2 +1,2 @@
-{"memo": "What's Up Docs のデータを取得（2026-10-20）",
- "competitions": [{"name": "whats-up-docs", "id": 297, "slug": "whats-up-docs"}]}
+{"memo": "Where the Wild Features Are のデータを K-12 のサイトから取得（2026-11-24、参加登録済み）",
+ "competitions": [{"name": "wild-features", "id": 4, "slug": "literacy-speech-modeling", "base_url": "https://platform.k12-ai-infrastructure.org"}]}

@@ -135,7 +135,8 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 - GEMS は参加資格が無く見送り（10-20 user 確認）。
 - 開催中コンペ（11-23 の Check Competitions）：9 件。**新規 1 件：Where the Wild Features Are**（`notes/wild-features/overview.md`）。
   - 幼稚園児の読みの検査の音声から年度末の読みの点を予測。賞金 $50,000（write-up の審査で決まる、上位 15 位が条件）。Phase 1 は 2027-01-19 まで。
-  - 日本在住でも参加・受賞の資格あり。ただし DrivenData でなく **K-12 AI Infrastructure Platform**（別のアカウント）。11-23 に PC の Claude へアカウント作成・参加・Secrets（`K12_USERNAME`・`K12_PASSWORD`）登録の依頼文を渡した。結果待ち。
+  - 日本在住でも参加・受賞の資格あり。DrivenData でなく **K-12 AI Infrastructure Platform**（別のアカウント）。**11-24 に PC の Claude が参加済み**（DrivenData と同じメール・パスワードなので、ログインは既存の `DRIVENDATA_EMAIL`・`DRIVENDATA_PASSWORD`）。ルールの要点は `notes/wild-features/rules.md`（🔴 Actions のログも公開：データの中身・ファイル一覧・音声 ID・URL を出さない）。
+  - データの取得：`requests/data-cache.json` に `base_url` を付けて push（`data-cache.yml` が静かに動く）。11-24 に 1 回目を出した。
 
   | 締切 | 分野 | 賞金 | 参加 | コンペ |
   |---|---|---|---|---|
@@ -148,7 +149,7 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 ## 次の一手
 
 - 🔴 **2026-11-14 午後から休止中。user が「始める」と言うまで再開しない**（11-16 user 指示：「始めるっていうまで停止へ」）。11-23 は user 指示で 1 回だけ回し、また停止に戻した。次の週 1 回の解析は再開後の最初の月曜。毎日の Routine `trig_01Rp6L6ZKtha2GgqYrrDVvtn` は無効にしてある。再開したら有効に戻し、`whats-up-docs/CLAUDE.md` の「次の一手 0」（v28 の上で、票の無い 2 語を見分ける手がかり）に入る。
-  - Where the Wild Features Are は、user（PC）から Secrets の名前が届いたら、K-12 のサイトからデータを取るワークフローと提出のワークフローを作る（休止中でも、user が頼めば進める）。
+  - Where the Wild Features Are：データ取得の仕組みは 11-24 に作った（`data-cache.yml` の `base_url`）。データが入ったら、Overview・Data ページの整理と提出の形式を確かめ、提出のワークフローを作る（休止中でも、user が頼めば進める）。
   - 10-30〜11-13 も休止していた（11-14 に再開）。
 
 

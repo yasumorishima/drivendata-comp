@@ -10,6 +10,9 @@ name: Data Cache (for cloud sessions)
 #
 # 起動: requests/data-cache.json を push（cloud から）または workflow_dispatch。
 #   {"memo": "なぜ取るか", "competitions": [{"name": "word", "id": 308, "slug": "childrens-word-asr"}]}
+#   K-12 AI Infrastructure Platform（運営は DrivenData、ログインは同じ Secrets）は "base_url" を付ける：
+#   {"name": "wild-features", "id": 4, "slug": "literacy-speech-modeling", "base_url": "https://platform.k12-ai-infrastructure.org"}
+#   base_url 付きは静かに動かす（リンク先・ファイル名・ページの文をログに出さない。repo が公開なのでログも公開）。
 # 資産名は "<name>__<file>"。ランナーの空きは約 14GB なので 1 コンペずつ取って上げて消す。
 
 on:
@@ -63,15 +66,20 @@ jobs:
           if [ -n "${COMPS_INPUT:-}" ]; then comps="$COMPS_INPUT"; else comps=$(jq -c '.competitions' requests/data-cache.json); fi
           echo "$comps" | jq -c '.[]' | while read -r c; do
             name=$(echo "$c" | jq -r .name)
+            base=$(echo "$c" | jq -r '.base_url // ""')
+            quiet=0; [ -n "$base" ] && quiet=1
             echo "=== $name ==="
             rm -rf data
-            DD_COMPETITIONS="[$c]" DOWNLOAD_DIR=data python scripts/download_data.py || echo "::warning::download failed for $name"
+            DD_BASE_URL="${base:-https://www.drivendata.org}" DD_QUIET=$quiet DD_DL_TIMEOUT=1800 \
+              DD_COMPETITIONS="[$c]" DOWNLOAD_DIR=data python scripts/download_data.py || echo "::warning::download failed for $name"
             [ -d "data/$name" ] || continue
             # same upload path as the PC (split > 1900MB, <name>__SHA256SUMS.txt)
-            DD_REPO="${{ github.repository }}" DD_TAG="$TAG" bash tools/local_push.sh "$name" "data/$name"
+            DD_QUIET=$quiet DD_REPO="${{ github.repository }}" DD_TAG="$TAG" bash tools/local_push.sh "$name" "data/$name" > /dev/null
+            echo "uploaded $(find "data/$name" -maxdepth 1 -type f | wc -l) files, $(du -sm "data/$name" | cut -f1) MB"
             rm -rf data
           done
 
       - name: List assets
         if: always()
-        run: gh release view "$TAG" --json assets --jq '.assets[] | "\(.name)\t\(.size)"' || true
+        # counts only: asset names would list the competitions' files in a public log
+        run: gh release view "$TAG" --json assets --jq '"\(.assets | length) assets, \([.assets[].size] | add / 1048576 | floor) MB"' || true

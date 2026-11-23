@@ -34,7 +34,7 @@ done
 
 for f in "${files[@]}"; do
   base="${name}__$(basename "$f")"
-  echo "== $base"
+  [ "${DD_QUIET:-}" = 1 ] || echo "== $base"
   grep -v "  $base\$" "$sums" > "$sums.new" || true; mv "$sums.new" "$sums"
   echo "$(sha "$f")  $base" >> "$sums"
   size=$(wc -c < "$f" | tr -d ' ')

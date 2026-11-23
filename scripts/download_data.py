@@ -7,7 +7,9 @@ import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-BASE_URL = "https://www.drivendata.org"
+BASE_URL = os.environ.get("DD_BASE_URL", "https://www.drivendata.org").rstrip("/")
+# DD_QUIET=1: print no link targets, file names or page text (the repo is public, so Actions logs are public).
+QUIET = os.environ.get("DD_QUIET") == "1"
 COMPETITIONS = {
     "word": {"id": 308, "slug": "childrens-word-asr"},
     "phonetic": {"id": 309, "slug": "childrens-phonetic-asr"},
@@ -35,7 +37,7 @@ def login(page, email: str, password: str):
     if "/accounts/login/" in page.url:
         print("ERROR: Login failed. Check credentials.")
         sys.exit(1)
-    print(f"Logged in successfully. Redirected to: {page.url}")
+    print("Logged in successfully." if QUIET else f"Logged in successfully. Redirected to: {page.url}")
 
 
 def download_data(page, comp_id: int, slug: str, track_dir: Path):
@@ -47,13 +49,14 @@ def download_data(page, comp_id: int, slug: str, track_dir: Path):
     page.wait_for_load_state("networkidle")
     time.sleep(3)
 
-    print(f"  Data page URL: {page.url}")
-    print(f"  Data page title: {page.title()}")
+    if not QUIET:
+        print(f"  Data page URL: {page.url}")
+        print(f"  Data page title: {page.title()}")
 
     # Save data page screenshot
     page.screenshot(path=str(track_dir / "data_page.png"), full_page=True)
 
-    if "Page not found" in page.title():
+    if "Page not found" in page.title() or "/accounts/login/" in page.url:
         print("  ERROR: Data page returned 404. Is the competition joined?")
         return False
 
@@ -89,12 +92,12 @@ def download_data(page, comp_id: int, slug: str, track_dir: Path):
             unique.append(c)
 
     print(f"  Found {len(unique)} download links")
-    for c in unique:
+    for c in ([] if QUIET else unique):
         print(f"    {c['text'][:50]} -> {c['href'][:100]}")
 
     if not unique:
-        print("  WARNING: No download links found. Listing all links on page:")
-        for a in all_anchors[:40]:
+        print("  WARNING: No download links found." + ("" if QUIET else " Listing all links on page:"))
+        for a in ([] if QUIET else all_anchors[:40]):
             try:
                 href = a.get_attribute("href") or ""
                 text = (a.inner_text() or "").strip()[:60]
@@ -109,21 +112,21 @@ def download_data(page, comp_id: int, slug: str, track_dir: Path):
         href = candidate["href"]
         text = candidate["text"]
         elem = candidate["element"]
-        print(f"  [{i+1}/{len(unique)}] Downloading: {text or href[:60]}")
+        print(f"  [{i+1}/{len(unique)}] Downloading" + ("" if QUIET else f": {text or href[:60]}"))
 
         try:
-            with page.expect_download(timeout=300_000) as download_info:
+            with page.expect_download(timeout=int(os.environ.get("DD_DL_TIMEOUT", "300")) * 1000) as download_info:
                 elem.click()
             download = download_info.value
             filename = download.suggested_filename
             save_path = track_dir / filename
             download.save_as(str(save_path))
             size_mb = save_path.stat().st_size / (1024 * 1024)
-            print(f"    OK: {filename} ({size_mb:.1f} MB)")
+            print(f"    OK: {'' if QUIET else filename} ({size_mb:.1f} MB)")
             success_count += 1
         except Exception as e:
             err_msg = str(e).split("\n")[0][:100]
-            print(f"    SKIP: {err_msg}")
+            print("    SKIP" + ("" if QUIET else f": {err_msg}"))
             # If navigation happened, go back to data page
             if "/data/" not in page.url:
                 page.goto(data_url)
@@ -170,7 +173,7 @@ def main():
             ]
             total = sum(f.stat().st_size for f in files)
             print(f"{track_dir.name}/: {len(files)} files, {total / (1024*1024):.1f} MB")
-            for f in sorted(files):
+            for f in ([] if QUIET else sorted(files)):
                 print(f"  {f.name} ({f.stat().st_size / (1024*1024):.1f} MB)")
 
     if not any_success:
