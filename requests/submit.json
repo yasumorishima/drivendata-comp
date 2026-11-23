@@ -1,3 +1,4 @@
-{"memo": "v28 = v26 の候補を上位 40 文→120 文に広げる（2 語モデルも広げた候補で学ぶ）: CV 0.2001（v26 0.1990）、15 対で +0.0011・11 勝・p 0.021",
- "comp": "/competitions/297/whats-up-docs/", "data": "whats-up-docs kout-llm-cpu-v1 kout-llm-sel-v1 kout-llm-abs2-v1 kout-llm-abs3-v1 kout-llm-abs4-v1",
- "script": "whats-up-docs/v28.py"}
+{"memo": "Wild Features v0：表だけの基準（Ridge、音声なし）で提出の経路を確かめる。CV R2 0.136（学校で分けた 5 fold）",
+ "comp": "/competitions/4/literacy-speech-modeling/", "data": "wild-features",
+ "script": "wild-features/baseline.py",
+ "base_url": "https://platform.k12-ai-infrastructure.org"}
