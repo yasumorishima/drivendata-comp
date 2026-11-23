@@ -153,7 +153,7 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 
 
 1. **What's Up Docs（`whats-up-docs/CLAUDE.md` が正本）で毎日 3 本（UTC 0 時で回復）を 1 本ずつ出す。** 新しい部品が無い日は出さない。
-   - 次の部品：候補を広げる路線は 120 文で頭打ち（v28）。次はモデル側の失点（どの 2 語が要旨に入るか）を、120 文での上限と比べて分けて見る。
+   - 次の部品：失点はモデル側の論文内の順位づけ（11-23 の解析）。LLM の票が無い 2 語（要旨の 2 語の 48%）を見分ける手がかりを探す（隣の票＝v29 は保留）。
    - 要旨 1 本の生成は `requests/llm-cpu.json`（prep 付き）で CPU 20 本・約 3 時間。生成中は Submit Prediction が待たされることがある。
    - 出し方：`requests/submit.json` を push → `Submit Prediction` が点数を `whats-up-docs/results/submissions.md` に追記。
    - 毎日 UTC 0:07（JST 9:07）に Routine `trig_01Rp6L6ZKtha2GgqYrrDVvtn` がこのセッションを起こす。
