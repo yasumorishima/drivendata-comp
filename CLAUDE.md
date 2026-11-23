@@ -106,7 +106,7 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 - `pasketti-*/`（On Top of Pasketti、2026-04-06 締切）は過去の作業の跡。仕組み（GPU 学習・提出 zip・自動提出）を流用するときだけ参照する。
 - PC のメモも、開催中のコンペと流用できる仕組みに関係するものだけ集めればよい。
 
-## 現在地（2026-11-14）
+## 現在地（2026-11-23）
 
 - cloud 対応は 10-19〜21 に完了（`Cloud Dispatch`・`Data Cache`・`Fetch Pages`・`Join`・`Submit Prediction`・`Kaggle Run`・`LLM on CPU`）。
   - 10-22 追加：`LLM on CPU` に prep job（入力を data-cache から作り、非公開の `kin-<name>` に置く）、`Cleanup Artifacts`。
@@ -114,6 +114,7 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
 - PC からの受け渡しは 10-20 に完了（`notes/LOCAL_INVENTORY.md`）。
   - PC の `Desktop/Kaggle/DrivenData.txt` は Discord の webhook URL（Secret `DISCORD_WEBHOOK_URL`）。Discord 側で消さない。
 - **What's Up Docs：最高 LB 0.2031（2 位、v28）。前の 2 位 0.2021 を抜いた（1 位 0.98 はネットの本物の要旨と見る）。**
+  - 11-23（user 指示「1回だけ回しましょう」で Routine を 1 回だけ起動）：週 1 回の統計解析（`notes/whats-up-docs/stats-2026-11-23.md`、評価の作法を初めて適用）。v28 は同じ run の 15 対で取り直して +0.0015・14 勝。失点はモデル側の順位づけ。新しい部品 v29（隣の 2 語の LLM 票）は +0.0004・p 0.14 で保留＝提出なし。
   - 11-14（休止明け 1 日目）：v19 の部品を新しい比べ方（15 対）で測り直したら v21 の上で +0.0015・p 0.0001 → v26 として出して LB 0.2014（+0.0004）。
     失点の切り分け（上限）：候補側とモデル側がほぼ半々。候補を 40→120 文に広げた v28 が 15 対で +0.0011・p 0.021 → LB 0.2031（+0.0017、2 位）。200 文は 120 文と同じ。
   - 10-27 は v20（3 本目の LLM 要旨、0.2000）・v21（4 本目、0.2010）。10-26 は v14 0.1978・v18 0.1987。
@@ -132,18 +133,22 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
   - TPU では CUDA 前提のもの（bitsandbytes・llama.cpp の CUDA 版・vLLM）が動かない。PyTorch/XLA か JAX/Flax で書き直す。
   - 10-23 に初めて出したら TPU の空き待ちが 1 時間以上続いた。待つ間は `TF on CPU`（Actions の CPU、fold ごと 5 本）で回す。cloud から Kaggle SDK を直接使える（`DRIVENDATA_MEMO.md`）。
 - GEMS は参加資格が無く見送り（10-20 user 確認）。
-- 開催中コンペ（10-28 の Check Competitions）：8 件、新規なし。
+- 開催中コンペ（11-23 の Check Competitions）：9 件。**新規 1 件：Where the Wild Features Are**（`notes/wild-features/overview.md`）。
+  - 幼稚園児の読みの検査の音声から年度末の読みの点を予測。賞金 $50,000（write-up の審査で決まる、上位 15 位が条件）。Phase 1 は 2027-01-19 まで。
+  - 日本在住でも参加・受賞の資格あり。ただし DrivenData でなく **K-12 AI Infrastructure Platform**（別のアカウント）。11-23 に PC の Claude へアカウント作成・参加・Secrets（`K12_USERNAME`・`K12_PASSWORD`）登録の依頼文を渡した。結果待ち。
 
   | 締切 | 分野 | 賞金 | 参加 | コンペ |
   |---|---|---|---|---|
   | 2026-12-03 | energy | $300,000 | 771 | GEMS Prize（資格なし） |
-  | 2027-02-01 | health | - | 181 | SNOMED CT Entity Linking Benchmark |
+  | 2027-02-01 | health | - | 189 | SNOMED CT Entity Linking Benchmark |
+  | 2027-02-08（提出は 01-19） | 音声・教育 | $50,000 | 97 | Where the Wild Features Are（K-12 の別サイト） |
   | 2028-04-03 | development | - | 652 | What's Up, Docs? Document Summarization with LLMs |
   | 2028-07-03 以降 | - | - | - | 練習コンペ 5 件（Flu Shot・Conser-vision・Richter's・DengAI・Pump it Up） |
 
 ## 次の一手
 
-- 🔴 **2026-11-14 午後から休止中。user が「始める」と言うまで再開しない**（11-16 user 指示：「始めるっていうまで停止へ」。前は「月曜午後まで」だった）。毎日の Routine `trig_01Rp6L6ZKtha2GgqYrrDVvtn` は無効にしてある。再開したら有効に戻し、まず週 1 回の統計解析（月曜）をしてから `whats-up-docs/CLAUDE.md` の「次の一手 0」（v28）に入る。
+- 🔴 **2026-11-14 午後から休止中。user が「始める」と言うまで再開しない**（11-16 user 指示：「始めるっていうまで停止へ」）。11-23 は user 指示で 1 回だけ回し、また停止に戻した。次の週 1 回の解析は再開後の最初の月曜。毎日の Routine `trig_01Rp6L6ZKtha2GgqYrrDVvtn` は無効にしてある。再開したら有効に戻し、`whats-up-docs/CLAUDE.md` の「次の一手 0」（v28 の上で、票の無い 2 語を見分ける手がかり）に入る。
+  - Where the Wild Features Are は、user（PC）から Secrets の名前が届いたら、K-12 のサイトからデータを取るワークフローと提出のワークフローを作る（休止中でも、user が頼めば進める）。
   - 10-30〜11-13 も休止していた（11-14 に再開）。
 
 
