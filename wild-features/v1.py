@@ -33,9 +33,23 @@ def audio_table(d, fd, part):
     return g
 
 
+ASR = ["s_recall", "s_extra", "s_nwords", "s_logp", "s_nospeech"]
+
+
+def asr_table(d, fd, part):
+    c = pd.read_csv(f"{d}{part}_clip_metadata.csv")[["filename", "subject_id"]]
+    a = pd.read_parquet(f"{fd}{part}_asr.parquet")
+    return c.merge(a, on="filename").groupby("subject_id")[ASR].mean()
+
+
 def tables(d, fd, part):
     f, s = B.table(d, part)
-    return f, f.join(audio_table(d, fd, part)), s
+    x = f
+    if os.environ.get("WF_AUDIO") != "none":
+        x = x.join(audio_table(d, fd, part))
+    if os.environ.get("WF_ASR") == "1":
+        x = x.join(asr_table(d, fd, part))
+    return f, x, s
 
 
 def folds(n, y, g):
