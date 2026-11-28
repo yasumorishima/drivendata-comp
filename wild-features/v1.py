@@ -26,7 +26,8 @@ def audio_table(d, fd, part):
     c = pd.read_csv(f"{d}{part}_clip_metadata.csv")[["filename", "subject_id", "task"]]
     a = pd.read_parquet(f"{fd}{part}_audio.parquet")
     x = c.merge(a, on="filename", how="left")
-    cols = [k for k in a.columns if k.startswith("a_")]
+    keep = os.environ.get("WF_AUDIO")  # comma list of a_* columns to keep (default: all)
+    cols = [k for k in a.columns if k.startswith("a_") and (not keep or k in keep.split(","))]
     g = x.groupby(["subject_id", "task"])[cols].mean().unstack("task")
     g.columns = [f"{a}_{b}" for a, b in g.columns]
     return g
