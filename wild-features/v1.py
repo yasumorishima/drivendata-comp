@@ -39,6 +39,7 @@ ASR = ["s_recall", "s_extra", "s_nwords", "s_logp", "s_nospeech"]
 def asr_table(d, fd, part):
     c = pd.read_csv(f"{d}{part}_clip_metadata.csv")[["filename", "subject_id"]]
     a = pd.read_parquet(f"{fd}{part}_asr.parquet")
+    a["s_nwords"] = a.s_nwords.clip(upper=2.0)  # Whisper sometimes loops (repeats a phrase); a fixed per-clip cap
     return c.merge(a, on="filename").groupby("subject_id")[ASR].mean()
 
 
