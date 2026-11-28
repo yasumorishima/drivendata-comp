@@ -142,6 +142,7 @@ PC の Claude Code に `notes/LOCAL_HANDOFF.md` の依頼文を貼ってもら�
   - 日本在住でも参加・受賞の資格あり。DrivenData でなく **K-12 AI Infrastructure Platform**（別のアカウント）。**11-24 に PC の Claude が参加済み**（DrivenData と同じメール・パスワードなので、ログインは既存の `DRIVENDATA_EMAIL`・`DRIVENDATA_PASSWORD`）。ルールの要点は `notes/wild-features/rules.md`（🔴 Actions のログも公開：データの中身・ファイル一覧・音声 ID・URL を出さない）。
   - データの取得：`requests/data-cache.json` に `base_url` を付けて push（`data-cache.yml` が静かに動く）。提出は `requests/submit.json` に `base_url` を付ける。
   - **11-24：データ取得から提出まで通した。** 表だけの基準 v0 が CV R² 0.136・**LB 0.2836（41 位）**。指標は R²。記録は `notes/wild-features/log.md`。
+  - **11-28：** CV は生徒のランダム分割 5 fold × 3 seed（15 対）に変更（v0 0.186〜0.192。学校で分けた点は確認用に並べる）。音の形の特徴（間合い・声質）は差なし。文の復唱の書き起こし（Whisper base.en）は +0.0021・p 0.20 で保留。1 語の課題の書き起こしは聞き取れず捨てた。
 
   | 締切 | 分野 | 賞金 | 参加 | コンペ |
   |---|---|---|---|---|
